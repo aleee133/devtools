@@ -1,23 +1,23 @@
-// Copyright 2023 The Chromium Authors. All rights reserved.
+// Copyright 2023 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
+import 'package:devtools_app_shared/ui.dart';
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/material.dart';
 
-import '../../../../shared/common_widgets.dart';
-import '../../../../shared/primitives/auto_dispose.dart';
 import '../../../../shared/primitives/utils.dart';
-import '../../../../shared/profiler_utils.dart';
-import '../../../../shared/split.dart';
 import '../../../../shared/table/table.dart';
 import '../../../../shared/table/table_data.dart';
-import '../../../../shared/theme.dart';
+import '../../../../shared/utils/profiler_utils.dart';
 import 'method_table_controller.dart';
 import 'method_table_model.dart';
 
+final _methodColumnMinWidth = scaleByFontFactor(800.0);
+
 /// Widget that displays a method table for a CPU profile.
 class CpuMethodTable extends StatelessWidget {
-  const CpuMethodTable({required this.methodTableController});
+  const CpuMethodTable({super.key, required this.methodTableController});
 
   final MethodTableController methodTableController;
 
@@ -26,11 +26,11 @@ class CpuMethodTable extends StatelessWidget {
     return ValueListenableBuilder<List<MethodTableGraphNode>>(
       valueListenable: methodTableController.methods,
       builder: (context, methods, _) {
-        return Split(
+        return SplitPane(
           axis: Axis.horizontal,
           initialFractions: const [0.5, 0.5],
           children: [
-            _MethodTable(methodTableController, methods),
+            MethodTable(methodTableController, methods),
             _MethodGraph(methodTableController),
           ],
         );
@@ -42,8 +42,9 @@ class CpuMethodTable extends StatelessWidget {
 // TODO(kenz): ensure that this table automatically scrolls to the selected
 // node from [MethodTableController].
 /// A table of methods and their timing information for a CPU profile.
-class _MethodTable extends StatelessWidget {
-  const _MethodTable(this._methodTableController, this._methods);
+@visibleForTesting
+class MethodTable extends StatelessWidget {
+  const MethodTable(this._methodTableController, this._methods, {super.key});
 
   static final methodColumn = _MethodColumn();
   static final selfTimeColumn = _SelfTimeColumn();
@@ -113,9 +114,10 @@ class _MethodGraphState extends State<_MethodGraph> with AutoDisposeMixin {
       _callers = <MethodTableGraphNode>[];
       _callees = <MethodTableGraphNode>[];
     } else {
-      _callers = _selectedGraphNode!.predecessors
-          .cast<MethodTableGraphNode>()
-          .toList();
+      _callers =
+          _selectedGraphNode!.predecessors
+              .cast<MethodTableGraphNode>()
+              .toList();
       _callees =
           _selectedGraphNode!.successors.cast<MethodTableGraphNode>().toList();
     }
@@ -138,31 +140,27 @@ class _MethodGraphState extends State<_MethodGraph> with AutoDisposeMixin {
         children: [
           Flexible(
             child: OutlineDecoration.onlyBottom(
-              child: _CallersTable(
-                widget.methodTableController,
-                _callers,
-              ),
+              child: _CallersTable(widget.methodTableController, _callers),
             ),
           ),
           DevToolsTooltip(
             message: selectedNodeDisplay,
             child: Padding(
-              padding: const EdgeInsets.all(denseSpacing),
+              padding: const EdgeInsets.symmetric(
+                horizontal: denseSpacing,
+                vertical: densePadding,
+              ),
               child: MethodAndSourceDisplay(
                 methodName: selectedNode.name,
                 packageUri: selectedNode.packageUri,
                 sourceLine: selectedNode.sourceLine,
-                isSelected: false,
                 displayInRow: false,
               ),
             ),
           ),
           Flexible(
             child: OutlineDecoration.onlyTop(
-              child: _CalleesTable(
-                widget.methodTableController,
-                _callees,
-              ),
+              child: _CalleesTable(widget.methodTableController, _callees),
             ),
           ),
         ],
@@ -174,8 +172,9 @@ class _MethodGraphState extends State<_MethodGraph> with AutoDisposeMixin {
 /// A table of predecessors (callers) for a single method in a method table.
 class _CallersTable extends StatelessWidget {
   _CallersTable(this._methodTableController, this._callers) {
-    _callerTimeColumn =
-        _CallerTimeColumn(methodTableController: _methodTableController);
+    _callerTimeColumn = _CallerTimeColumn(
+      methodTableController: _methodTableController,
+    );
     columns = List<ColumnData<MethodTableGraphNode>>.unmodifiable([
       _callerTimeColumn,
       methodColumn,
@@ -210,8 +209,9 @@ class _CallersTable extends StatelessWidget {
 /// A table of successors (callees) for a single method in a method table.
 class _CalleesTable extends StatelessWidget {
   _CalleesTable(this._methodTableController, this._callees) {
-    _calleeTimeColumn =
-        _CalleeTimeColumn(methodTableController: _methodTableController);
+    _calleeTimeColumn = _CalleeTimeColumn(
+      methodTableController: _methodTableController,
+    );
     _columns = List<ColumnData<MethodTableGraphNode>>.unmodifiable([
       _calleeTimeColumn,
       _methodColumn,
@@ -245,10 +245,7 @@ class _CalleesTable extends StatelessWidget {
 
 class _MethodColumn extends ColumnData<MethodTableGraphNode>
     implements ColumnRenderer<MethodTableGraphNode> {
-  _MethodColumn() : super.wide('Method');
-
-  @override
-  bool get supportsSorting => true;
+  _MethodColumn() : super.wide('Method', minWidthPx: _methodColumnMinWidth);
 
   @override
   String getValue(MethodTableGraphNode dataObject) => dataObject.name;
@@ -264,72 +261,64 @@ class _MethodColumn extends ColumnData<MethodTableGraphNode>
     BuildContext context,
     MethodTableGraphNode data, {
     bool isRowSelected = false,
+    bool isRowHovered = false,
     VoidCallback? onPressed,
   }) {
     return MethodAndSourceDisplay(
       methodName: data.name,
       packageUri: data.packageUri,
       sourceLine: data.sourceLine,
-      isSelected: isRowSelected,
     );
   }
 }
 
-const _totalAndSelfColumnWidth = 75.0;
-const _callGraphColumnWidth = 80.0;
+const _totalAndSelfColumnWidth = 60.0;
+const _callGraphColumnWidth = 70.0;
 
 class _SelfTimeColumn extends TimeAndPercentageColumn<MethodTableGraphNode> {
-  _SelfTimeColumn({String? titleTooltip})
-      : super(
-          title: 'Self %',
-          titleTooltip: titleTooltip,
-          percentageOnly: true,
-          timeProvider: (node) => node.selfTime,
-          percentAsDoubleProvider: (node) => node.selfTimeRatio,
-          secondaryCompare: (node) => node.name,
-          columnWidth: _totalAndSelfColumnWidth,
-        );
+  _SelfTimeColumn()
+    : super(
+        title: 'Self %',
+        percentageOnly: true,
+        timeProvider: (node) => node.selfTime,
+        percentAsDoubleProvider: (node) => node.selfTimeRatio,
+        secondaryCompare: (node) => node.name,
+        columnWidth: _totalAndSelfColumnWidth,
+      );
 }
 
 class _TotalTimeColumn extends TimeAndPercentageColumn<MethodTableGraphNode> {
-  _TotalTimeColumn({String? titleTooltip})
-      : super(
-          title: 'Total %',
-          titleTooltip: titleTooltip,
-          percentageOnly: true,
-          timeProvider: (node) => node.totalTime,
-          percentAsDoubleProvider: (node) => node.totalTimeRatio,
-          secondaryCompare: (node) => node.name,
-          columnWidth: _totalAndSelfColumnWidth,
-        );
+  _TotalTimeColumn()
+    : super(
+        title: 'Total %',
+        percentageOnly: true,
+        timeProvider: (node) => node.totalTime,
+        percentAsDoubleProvider: (node) => node.totalTimeRatio,
+        secondaryCompare: (node) => node.name,
+        columnWidth: _totalAndSelfColumnWidth,
+      );
 }
 
 class _CallerTimeColumn extends TimeAndPercentageColumn<MethodTableGraphNode> {
-  _CallerTimeColumn({
-    required MethodTableController methodTableController,
-    String? titleTooltip,
-  }) : super(
-          title: 'Caller %',
-          titleTooltip: titleTooltip,
-          percentageOnly: true,
-          percentAsDoubleProvider: (node) =>
-              methodTableController.callerPercentageFor(node),
-          secondaryCompare: (node) => node.name,
-          columnWidth: _callGraphColumnWidth,
-        );
+  _CallerTimeColumn({required MethodTableController methodTableController})
+    : super(
+        title: 'Caller %',
+        percentageOnly: true,
+        percentAsDoubleProvider:
+            (node) => methodTableController.callerPercentageFor(node),
+        secondaryCompare: (node) => node.name,
+        columnWidth: _callGraphColumnWidth,
+      );
 }
 
 class _CalleeTimeColumn extends TimeAndPercentageColumn<MethodTableGraphNode> {
-  _CalleeTimeColumn({
-    required MethodTableController methodTableController,
-    String? titleTooltip,
-  }) : super(
-          title: 'Callee %',
-          titleTooltip: titleTooltip,
-          percentageOnly: true,
-          percentAsDoubleProvider: (node) =>
-              methodTableController.calleePercentageFor(node),
-          secondaryCompare: (node) => node.name,
-          columnWidth: _callGraphColumnWidth,
-        );
+  _CalleeTimeColumn({required MethodTableController methodTableController})
+    : super(
+        title: 'Callee %',
+        percentageOnly: true,
+        percentAsDoubleProvider:
+            (node) => methodTableController.calleePercentageFor(node),
+        secondaryCompare: (node) => node.name,
+        columnWidth: _callGraphColumnWidth,
+      );
 }

@@ -1,11 +1,11 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../shared/globals.dart';
-import '../../../shared/primitives/auto_dispose.dart';
 import '../vm_service_private_extensions.dart';
 
 class ObjectStoreController extends DisposableController
@@ -15,13 +15,21 @@ class ObjectStoreController extends DisposableController
   final _selectedIsolateObjectStore = ValueNotifier<ObjectStore?>(null);
 
   Future<void> refresh() async {
-    final service = serviceManager.service!;
-    final isolate = serviceManager.isolateManager.selectedIsolate.value;
+    final service = serviceConnection.serviceManager.service!;
+    final isolate =
+        serviceConnection.serviceManager.isolateManager.selectedIsolate.value;
     if (isolate == null) {
       return;
     }
     _selectedIsolateObjectStore.value = null;
-    _selectedIsolateObjectStore.value =
-        await service.getObjectStore(isolate.id!);
+    _selectedIsolateObjectStore.value = await service.getObjectStore(
+      isolate.id!,
+    );
+  }
+
+  @override
+  void dispose() {
+    _selectedIsolateObjectStore.dispose();
+    super.dispose();
   }
 }

@@ -1,16 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 
 import 'package:collection/collection.dart';
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/foundation.dart';
 import 'package:vm_service/vm_service.dart' hide VmService;
 
 import '../../../service/vm_service_wrapper.dart';
 import '../../../shared/globals.dart';
-import '../../../shared/primitives/auto_dispose.dart';
 
 class VMStatisticsViewController extends DisposableController {
   VMStatisticsViewController() {
@@ -21,23 +21,16 @@ class VMStatisticsViewController extends DisposableController {
     _refreshing.value = true;
     final vm = await _service.getVM();
     _vm = vm;
-    _isolates = await Future.wait<Isolate>(
-      vm.isolates!.map(
-        (i) => _service.getIsolate(i.id!),
-      ),
-    );
-    _systemIsolates = await Future.wait<Isolate>(
-      vm.systemIsolates!.map(
-        (i) => _service.getIsolate(i.id!),
-      ),
-    );
+    _isolates = await vm.isolates!.map((i) => _service.getIsolate(i.id!)).wait;
+    _systemIsolates =
+        await vm.systemIsolates!.map((i) => _service.getIsolate(i.id!)).wait;
     _refreshing.value = false;
   }
 
   ValueListenable<bool> get refreshing => _refreshing;
   final _refreshing = ValueNotifier<bool>(true);
 
-  VmServiceWrapper get _service => serviceManager.service!;
+  VmServiceWrapper get _service => serviceConnection.serviceManager.service!;
 
   VM? get vm => _vm;
   VM? _vm;

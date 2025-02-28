@@ -1,13 +1,18 @@
-// Copyright 2023 The Chromium Authors. All rights reserved.
+// Copyright 2023 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'package:devtools_app/src/screens/performance/panes/flutter_frames/flutter_frames_chart.dart';
 import 'package:devtools_app/src/screens/performance/panes/timeline_events/perfetto/_perfetto_web.dart';
-import 'package:devtools_test/devtools_integration_test.dart';
+import 'package:devtools_test/helpers.dart';
+import 'package:devtools_test/integration_test.dart';
+import 'package:devtools_test/test_data.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+
+// To run:
+// dart run integration_test/run_tests.dart --target=integration_test/test/offline/perfetto_test.dart
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -27,7 +32,7 @@ void main() {
 
       await verifyScreenshot(binding, 'perfetto_initial_load');
 
-      logStatus('select a Flutter Frame');
+      logStatus('select a different Flutter Frame');
       await tester.tap(find.byType(FlutterFramesChartItem).last);
       await tester.pumpAndSettle(safePumpDuration);
 

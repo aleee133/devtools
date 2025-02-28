@@ -1,6 +1,6 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'package:flutter/material.dart';
 import 'package:vm_service/vm_service.dart';
@@ -14,6 +14,7 @@ import 'vm_object_model.dart';
 /// related to field objects in the Dart VM.
 class VmFieldDisplay extends StatelessWidget {
   const VmFieldDisplay({
+    super.key,
     required this.controller,
     required this.field,
   });
@@ -37,15 +38,10 @@ class VmFieldDisplay extends StatelessWidget {
 
   /// Generates a list of key-value pairs (map entries) containing the general
   /// information of the field object [field].
-  List<MapEntry<String, WidgetBuilder>> _fieldDataRows(
-    FieldObject field,
-  ) {
+  List<MapEntry<String, WidgetBuilder>> _fieldDataRows(FieldObject field) {
     final staticValue = field.obj.staticValue;
     return [
-      ...vmObjectGeneralDataRows(
-        controller,
-        field,
-      ),
+      ...vmObjectGeneralDataRows(controller, field),
       selectableTextBuilderMapEntry(
         'Observed types',
         _fieldObservedTypes(field),
@@ -83,10 +79,12 @@ class VmFieldDisplay extends StatelessWidget {
         type = 'Observed types not found';
     }
 
-    final nullable = field.guardNullable == null
-        ? ''
-        : ' - null ${field.guardNullable! ? '' : 'not '}observed';
+    final nullable =
+        field.guardNullable == null ? '' : _nullMessage(field.guardNullable!);
 
     return '$type$nullable';
   }
+
+  String _nullMessage(bool isNullable) =>
+      ' - null ${isNullable ? '' : 'not '}observed';
 }

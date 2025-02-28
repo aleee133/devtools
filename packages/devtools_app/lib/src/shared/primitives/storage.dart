@@ -1,6 +1,6 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 /// An abstract implementation of a key value store.
 ///
@@ -11,5 +11,5 @@ abstract class Storage {
   Future<String?> getValue(String key);
 
   /// Set a value for the given key.
-  Future setValue(String key, String value);
+  Future<void> setValue(String key, String value);
 }

@@ -1,23 +1,23 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
+import 'package:devtools_app_shared/ui.dart';
 import 'package:flutter/material.dart';
 import 'package:string_scanner/string_scanner.dart';
 import 'package:vm_service/vm_service.dart';
 
-import '../../../shared/common_widgets.dart';
 import '../../../shared/primitives/utils.dart';
-import '../../../shared/split.dart';
 import '../../../shared/table/table.dart';
 import '../../../shared/table/table_data.dart';
-import '../../../shared/theme.dart';
+import '../../../shared/ui/colors.dart';
+import '../../../shared/ui/common_widgets.dart';
 import '../vm_developer_common_widgets.dart';
 import '../vm_service_private_extensions.dart';
 import 'object_inspector_view_controller.dart';
 import 'vm_object_model.dart';
 
-abstract class _CodeColumnData extends ColumnData<Instruction> {
+abstract class _CodeColumnData<T> extends ColumnData<T> {
   _CodeColumnData(super.title, {required super.fixedWidthPx});
   _CodeColumnData.wide(super.title) : super.wide();
 
@@ -25,12 +25,8 @@ abstract class _CodeColumnData extends ColumnData<Instruction> {
   bool get supportsSorting => false;
 }
 
-class _AddressColumn extends _CodeColumnData {
-  _AddressColumn()
-      : super(
-          'Address',
-          fixedWidthPx: 160,
-        );
+class _AddressColumn extends _CodeColumnData<Instruction> {
+  _AddressColumn() : super('Address', fixedWidthPx: 160);
 
   @override
   int getValue(Instruction dataObject) {
@@ -44,13 +40,56 @@ class _AddressColumn extends _CodeColumnData {
   }
 }
 
+class _AddressRangeColumn extends _CodeColumnData<InliningEntry> {
+  _AddressRangeColumn() : super('Address Range', fixedWidthPx: 300);
+
+  @override
+  String getValue(InliningEntry dataObject) {
+    return '[${dataObject.addressRange.begin.asAddress}, '
+        '${dataObject.addressRange.end.asAddress})';
+  }
+}
+
+class _FunctionsColumn extends _CodeColumnData<InliningEntry>
+    implements ColumnRenderer<InliningEntry> {
+  _FunctionsColumn({required this.controller}) : super.wide('Functions');
+
+  final ObjectInspectorViewController controller;
+
+  @override
+  Widget? build(
+    BuildContext context,
+    InliningEntry data, {
+    bool isRowSelected = false,
+    bool isRowHovered = false,
+    VoidCallback? onPressed,
+  }) {
+    return Row(
+      children: [
+        for (final function in data.functions) ...[
+          VmServiceObjectLink(
+            object: function,
+            onTap: controller.findAndSelectNodeForObject,
+          ),
+          const SizedBox(width: denseSpacing),
+        ],
+      ],
+    );
+  }
+
+  @override
+  Object? getValue(InliningEntry dataObject) {
+    return dataObject;
+  }
+}
+
 // TODO(bkonyi): consider coloring the background similarly to how we indicate
 // code "hotness" in the debugger tab. To do this properly here, we'd need to
 // modify the table column padding logic to allow for custom column rendering
 // that can fill the entire column which is a can of worms I'd rather not open
 // for some rather niche functionality. We can revisit this once we can use the
 // table implementation from the Flutter framework.
-class _ProfileTicksColumn extends _CodeColumnData {
+class _ProfileTicksColumn extends _CodeColumnData<Instruction> {
   _ProfileTicksColumn(
     super.title, {
     required this.inclusive,
@@ -77,13 +116,43 @@ class _ProfileTicksColumn extends _CodeColumnData {
   }
 }
 
-class _InstructionColumn extends _CodeColumnData
+// TODO(bkonyi): consider coloring the background similarly to how we indicate
+// code "hotness" in the debugger tab. To do this properly here, we'd need to
+// modify the table column padding logic to allow for custom column rendering
+// that can fill the entire column which is a can of worms I'd rather not open
+// for some rather niche functionality. We can revisit this once we can use the
+// table implementation from the Flutter framework.
+class _ProfileRangeTicksColumn extends _CodeColumnData<InliningEntry> {
+  _ProfileRangeTicksColumn(
+    super.title, {
+    required this.inclusive,
+    required this.ticks,
+  }) : super(fixedWidthPx: 140);
+
+  final bool inclusive;
+  final CpuProfilerTicksTable? ticks;
+
+  @override
+  int? getValue(InliningEntry dataObject) {
+    if (ticks == null) return null;
+    final range = dataObject.addressRange;
+    final tick = ticks!.forRange(range.begin.toInt(), range.end.toInt());
+    return inclusive ? tick?.inclusiveTicks : tick?.exclusiveTicks;
+  }
+
+  @override
+  String getDisplayValue(InliningEntry dataObject) {
+    final value = getValue(dataObject);
+    if (value == null) return '';
+
+    final percentage = percent(value / ticks!.sampleCount);
+    return '$percentage ($value)';
+  }
+}
+
+class _InstructionColumn extends _CodeColumnData<Instruction>
     implements ColumnRenderer<Instruction> {
-  _InstructionColumn()
-      : super(
-          'Disassembly',
-          fixedWidthPx: 240,
-        );
+  _InstructionColumn() : super('Disassembly', fixedWidthPx: 240);
 
   @override
   Object? getValue(Instruction dataObject) {
@@ -95,15 +164,13 @@ class _InstructionColumn extends _CodeColumnData
     BuildContext context,
     Instruction data, {
     bool isRowSelected = false,
+    bool isRowHovered = false,
     VoidCallback? onPressed,
   }) {
     final theme = Theme.of(context);
     return Text.rich(
       style: theme.fixedFontStyle,
-      _highlightAssemblyCode(
-        context,
-        data.instruction,
-      ),
+      _highlightAssemblyCode(context, data.instruction),
     );
   }
 
@@ -118,18 +185,14 @@ class _InstructionColumn extends _CodeColumnData
   ) {
     return TextSpan(
       text: _getLastMatch(scanner),
-      style: TextStyle(
-        color: colorScheme.controlFlowSyntaxColor,
-      ),
+      style: TextStyle(color: colorScheme.controlFlowSyntaxColor),
     );
   }
 
   TextSpan _buildRegisterSpan(ColorScheme colorScheme, StringScanner scanner) {
     return TextSpan(
       text: _getLastMatch(scanner),
-      style: TextStyle(
-        color: colorScheme.variableSyntaxColor,
-      ),
+      style: TextStyle(color: colorScheme.variableSyntaxColor),
     );
   }
 
@@ -141,9 +204,7 @@ class _InstructionColumn extends _CodeColumnData
     final match = _getLastMatch(scanner);
     return TextSpan(
       text: isHex ? '0x${match.substring(2).toUpperCase()}' : match,
-      style: TextStyle(
-        color: colorScheme.numericConstantSyntaxColor,
-      ),
+      style: TextStyle(color: colorScheme.numericConstantSyntaxColor),
     );
   }
 
@@ -170,18 +231,14 @@ class _InstructionColumn extends _CodeColumnData
       } else if (scanner.scan(registerRegExp)) {
         spans.add(_buildRegisterSpan(colorScheme, scanner));
       } else {
-        spans.add(
-          TextSpan(
-            text: String.fromCharCode(scanner.readChar()),
-          ),
-        );
+        spans.add(TextSpan(text: String.fromCharCode(scanner.readChar())));
       }
     }
     return TextSpan(children: spans);
   }
 }
 
-class _DartObjectColumn extends _CodeColumnData
+class _DartObjectColumn extends _CodeColumnData<Instruction>
     implements ColumnRenderer<Instruction> {
   _DartObjectColumn({required this.controller}) : super.wide('Object');
 
@@ -195,6 +252,7 @@ class _DartObjectColumn extends _CodeColumnData
     BuildContext context,
     Instruction data, {
     bool isRowSelected = false,
+    bool isRowHovered = false,
     VoidCallback? onPressed,
   }) {
     if (data.object == null) return Container();
@@ -209,6 +267,7 @@ class _DartObjectColumn extends _CodeColumnData
 /// related to [Code] objects in the Dart VM.
 class VmCodeDisplay extends StatelessWidget {
   const VmCodeDisplay({
+    super.key,
     required this.controller,
     required this.code,
   });
@@ -218,7 +277,7 @@ class VmCodeDisplay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Split(
+    return SplitPane(
       initialFractions: const [0.4, 0.6],
       axis: Axis.vertical,
       children: [
@@ -232,26 +291,39 @@ class VmCodeDisplay extends StatelessWidget {
           ),
         ),
         OutlineDecoration.onlyTop(
-          child: CodeTable(
-            code: code,
-            controller: controller,
-            ticks: code.ticksTable,
+          child: Column(
+            children: [
+              if (code.obj.hasInliningData) ...[
+                Flexible(
+                  child: InliningTable(
+                    code: code,
+                    controller: controller,
+                    ticks: code.ticksTable,
+                  ),
+                ),
+                const ThickDivider(),
+              ],
+              Flexible(
+                child: CodeTable(
+                  code: code,
+                  controller: controller,
+                  ticks: code.ticksTable,
+                ),
+              ),
+            ],
           ),
         ),
       ],
     );
   }
 
-  /// Returns a list of key-value pairs (map entries)
-  /// containing detailed information of a VM Func object [function].
+  /// Returns a list of key-value pairs (map entries) containing detailed
+  /// information of a [CodeObject].
   List<MapEntry<String, Widget Function(BuildContext)>> _codeDetailRows(
     CodeObject code,
   ) {
     return [
-      selectableTextBuilderMapEntry(
-        'Kind',
-        code.obj.kind,
-      ),
+      selectableTextBuilderMapEntry('Kind', code.obj.kind),
       serviceObjectLinkBuilderMapEntry(
         controller: controller,
         key: 'Function',
@@ -266,29 +338,75 @@ class VmCodeDisplay extends StatelessWidget {
   }
 }
 
-class CodeTable extends StatelessWidget {
-  CodeTable({
-    Key? key,
+class InliningTable extends StatelessWidget {
+  InliningTable({
+    super.key,
     required this.code,
     required this.controller,
     required this.ticks,
-  }) : super(key: key);
+  }) : inliningData = code.obj.inliningData;
+
+  final CodeObject code;
+  final InliningData inliningData;
+  final ObjectInspectorViewController controller;
+  final CpuProfilerTicksTable? ticks;
+
+  late final columns = <ColumnData<InliningEntry>>[
+    _AddressRangeColumn(),
+    _FunctionsColumn(controller: controller),
+    if (ticks != null) ...[
+      _ProfileRangeTicksColumn(
+        'Total %',
+        ticks: code.ticksTable,
+        inclusive: true,
+      ),
+      _ProfileRangeTicksColumn(
+        'Self %',
+        ticks: code.ticksTable,
+        inclusive: false,
+      ),
+    ],
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return FlatTable<InliningEntry>(
+      data: inliningData.entries,
+      dataKey: 'vm-code-display',
+      keyFactory: (entry) => Key(entry.addressRange.toString()),
+      columnGroups: [
+        ColumnGroup.fromText(
+          title: 'Inlined Functions',
+          range: const Range(0, 2),
+        ),
+        if (ticks != null)
+          ColumnGroup.fromText(
+            title: 'Profiler Ticks',
+            range: const Range(2, 4),
+          ),
+      ],
+      columns: columns,
+      defaultSortColumn: columns[0],
+      defaultSortDirection: SortDirection.ascending,
+    );
+  }
+}
+
+class CodeTable extends StatelessWidget {
+  CodeTable({
+    super.key,
+    required this.code,
+    required this.controller,
+    required this.ticks,
+  });
 
   late final columns = <ColumnData<Instruction>>[
     _AddressColumn(),
     _InstructionColumn(),
     _DartObjectColumn(controller: controller),
     if (ticks != null) ...[
-      _ProfileTicksColumn(
-        'Total %',
-        ticks: code.ticksTable,
-        inclusive: true,
-      ),
-      _ProfileTicksColumn(
-        'Self %',
-        ticks: code.ticksTable,
-        inclusive: false,
-      ),
+      _ProfileTicksColumn('Total %', ticks: code.ticksTable, inclusive: true),
+      _ProfileTicksColumn('Self %', ticks: code.ticksTable, inclusive: false),
     ],
   ];
 
@@ -321,6 +439,7 @@ class CodeTable extends StatelessWidget {
 class CpuProfilerTicksTable {
   CpuProfilerTicksTable.parse({
     required this.sampleCount,
+    // ignore: avoid-dynamic, requires refactor.
     required List<dynamic> ticks,
   }) : assert(ticks.length % 3 == 0) {
     // Ticks are built up of groups of 3 elements:
@@ -343,16 +462,31 @@ class CpuProfilerTicksTable {
   /// returned.
   CodeTicks? operator [](String address) => _table[address];
 
+  CodeTicks? forRange(int start, int end) {
+    CodeTicks? result;
+    for (int i = start; i < end; ++i) {
+      final ticks = this[i.toRadixString(16)];
+      if (result == null) {
+        result = ticks;
+      } else if (ticks != null) {
+        result += ticks;
+      }
+    }
+    return result;
+  }
+
   final _table = <String, CodeTicks>{};
 }
 
 /// Tracks inclusive and exclusive CPU profiler ticks for a single
 /// [Instruction].
 class CodeTicks {
-  const CodeTicks({
-    required this.inclusiveTicks,
-    required this.exclusiveTicks,
-  });
+  const CodeTicks({required this.inclusiveTicks, required this.exclusiveTicks});
+
+  CodeTicks operator +(CodeTicks other) => CodeTicks(
+    inclusiveTicks: inclusiveTicks + other.inclusiveTicks,
+    exclusiveTicks: exclusiveTicks + other.exclusiveTicks,
+  );
 
   final int exclusiveTicks;
   final int inclusiveTicks;

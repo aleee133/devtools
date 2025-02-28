@@ -1,6 +1,6 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:collection';
 import 'dart:math';
@@ -17,7 +17,7 @@ import 'dart:math';
 abstract class TreeNode<T extends TreeNode<T>> {
   T? parent;
 
-  final List<T> children = [];
+  final children = <T>[];
 
   // TODO(jacobr) should impact depth.
   bool indentChildren = true;
@@ -33,7 +33,7 @@ abstract class TreeNode<T extends TreeNode<T>> {
     if (_depth != 0) {
       return _depth;
     }
-    for (T child in children) {
+    for (final child in children) {
       _depth = max(_depth, child.depth);
     }
     return _depth = _depth + 1;
@@ -158,11 +158,7 @@ abstract class TreeNode<T extends TreeNode<T>> {
     );
   }
 
-  void removeLastChild() {
-    children.removeLast();
-  }
-
-  bool subtreeHasNodeWithCondition(bool condition(T node)) {
+  bool subtreeHasNodeWithCondition(bool Function(T node) condition) {
     final T? childWithCondition = firstChildWithCondition(condition);
     return childWithCondition != null;
   }
@@ -170,17 +166,17 @@ abstract class TreeNode<T extends TreeNode<T>> {
   /// Returns a list of nodes in this tree that match [condition].
   ///
   /// This list may include the root.
-  List<T> nodesWithCondition(bool condition(T node)) {
-    final _nodes = <T>[];
+  List<T> nodesWithCondition(bool Function(T node) condition) {
+    final nodes = <T>[];
     breadthFirstTraversal<T>(
       this as T,
       action: (node) {
         if (condition(node)) {
-          _nodes.add(node);
+          nodes.add(node);
         }
       },
     );
-    return _nodes;
+    return nodes;
   }
 
   /// Returns a list of shallow nodes that match [condition], meaning that if
@@ -190,25 +186,22 @@ abstract class TreeNode<T extends TreeNode<T>> {
   /// In other words, only the top-most node in each tree branch that matches
   /// [condition] will be included in the returned list. This list may include
   /// the root.
-  List<T> shallowNodesWithCondition(bool condition(T node)) {
-    final _nodes = <T>[];
+  List<T> shallowNodesWithCondition(bool Function(T node) condition) {
+    final nodes = <T>[];
     depthFirstTraversal<T>(
       this as T,
       action: (T node) {
         if (condition(node)) {
-          _nodes.add(node);
+          nodes.add(node);
         }
       },
       exploreChildrenCondition: (T node) => !condition(node),
     );
-    return _nodes;
+    return nodes;
   }
 
-  T? firstChildWithCondition(bool condition(T node)) {
-    return breadthFirstTraversal<T>(
-      this as T,
-      returnCondition: condition,
-    );
+  T? firstChildWithCondition(bool Function(T node) condition) {
+    return breadthFirstTraversal<T>(this as T, returnCondition: condition);
   }
 
   /// Locates the first sub-node in the tree at level [level].
@@ -232,8 +225,9 @@ abstract class TreeNode<T extends TreeNode<T>> {
       // When this condition is called, we have already ensured that
       // [level] < [depth], so at least one child is guaranteed to meet the
       // firstWhere condition.
-      (currentNode, levelWithOffset) => currentNode.children
-          .firstWhere((n) => n.depth + n.level > levelWithOffset),
+      (currentNode, levelWithOffset) => currentNode.children.firstWhere(
+        (n) => n.depth + n.level > levelWithOffset,
+      ),
     );
   }
 
@@ -258,8 +252,9 @@ abstract class TreeNode<T extends TreeNode<T>> {
       // When this condition is called, we have already ensured that
       // [level] < [depth], so at least one child is guaranteed to meet the
       // lastWhere condition.
-      (currentNode, levelWithOffset) => currentNode.children
-          .lastWhere((n) => n.depth + n.level > levelWithOffset),
+      (currentNode, levelWithOffset) => currentNode.children.lastWhere(
+        (n) => n.depth + n.level > levelWithOffset,
+      ),
     );
   }
 
@@ -272,7 +267,7 @@ abstract class TreeNode<T extends TreeNode<T>> {
   /// scenario is searching for a very deep level in a very wide tree.
   T? _childNodeAtLevelWithCondition(
     int level,
-    T traversalCondition(T currentNode, int levelWithOffset),
+    T Function(T currentNode, int levelWithOffset) traversalCondition,
   ) {
     if (level >= depth) return null;
     // The current node [this] is not guaranteed to be at level 0, so we need
@@ -296,7 +291,7 @@ abstract class TreeNode<T extends TreeNode<T>> {
   /// If the root [this] should be included in the filtered results, the list
   /// will contain one node. If the root [this] should not be included in the
   /// filtered results, the list may contain one or more nodes.
-  List<T> filterWhere(bool filter(T node)) {
+  List<T> filterWhere(bool Function(T node) filter) {
     List<T> walkAndCopy(T node) {
       if (filter(node)) {
         final copy = node.shallowCopy();
@@ -312,7 +307,7 @@ abstract class TreeNode<T extends TreeNode<T>> {
   }
 
   int childCountToMatchingNode({
-    bool matchingNodeCondition(T node)?,
+    bool Function(T node)? matchingNodeCondition,
     bool includeCollapsedNodes = true,
   }) {
     var index = 0;
@@ -338,15 +333,10 @@ abstract class TreeNode<T extends TreeNode<T>> {
 /// every single node, we would do this through the [action] param.
 T? breadthFirstTraversal<T extends TreeNode<T>>(
   T root, {
-  bool returnCondition(T node)?,
-  void action(T node)?,
+  bool Function(T node)? returnCondition,
+  void Function(T node)? action,
 }) {
-  return _treeTraversal(
-    root,
-    bfs: true,
-    returnCondition: returnCondition,
-    action: action,
-  );
+  return _treeTraversal(root, returnCondition: returnCondition, action: action);
 }
 
 /// Traverses a tree in depth-first preorder order.
@@ -361,9 +351,9 @@ T? breadthFirstTraversal<T extends TreeNode<T>>(
 /// explore the children of a node. By default, all children are explored.
 T? depthFirstTraversal<T extends TreeNode<T>>(
   T root, {
-  bool returnCondition(T node)?,
-  void action(T node)?,
-  bool exploreChildrenCondition(T node)?,
+  bool Function(T node)? returnCondition,
+  void Function(T node)? action,
+  bool Function(T node)? exploreChildrenCondition,
 }) {
   return _treeTraversal(
     root,
@@ -377,9 +367,9 @@ T? depthFirstTraversal<T extends TreeNode<T>>(
 T? _treeTraversal<T extends TreeNode<T>>(
   T root, {
   bool bfs = true,
-  bool returnCondition(T node)?,
-  void action(T node)?,
-  bool exploreChildrenCondition(T node)?,
+  bool Function(T node)? returnCondition,
+  void Function(T node)? action,
+  bool Function(T node)? exploreChildrenCondition,
 }) {
   final toVisit = Queue.of([root]);
   while (toVisit.isNotEmpty) {
@@ -401,10 +391,10 @@ T? _treeTraversal<T extends TreeNode<T>>(
 
 List<T> buildFlatList<T extends TreeNode<T>>(
   List<T> roots, {
-  void onTraverse(T node)?,
+  void Function(T node)? onTraverse,
 }) {
   final flatList = <T>[];
-  for (T root in roots) {
+  for (final root in roots) {
     _traverse(root, (T n) {
       if (onTraverse != null) onTraverse(n);
       flatList.add(n);
@@ -414,13 +404,10 @@ List<T> buildFlatList<T extends TreeNode<T>>(
   return flatList;
 }
 
-void _traverse<T extends TreeNode<T>>(
-  T node,
-  bool Function(T) callback,
-) {
+void _traverse<T extends TreeNode<T>>(T node, bool Function(T) callback) {
   final shouldContinue = callback(node);
   if (shouldContinue) {
-    for (var child in node.children) {
+    for (final child in node.children) {
       _traverse(child, callback);
     }
   }

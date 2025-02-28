@@ -1,13 +1,12 @@
-// Copyright 2023 The Chromium Authors. All rights reserved.
+// Copyright 2023 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
+import 'package:devtools_app_shared/ui.dart';
 import 'package:flutter/material.dart';
 import 'package:vm_service/vm_service.dart';
 
-import '../../../shared/common_widgets.dart';
 import '../../../shared/primitives/utils.dart';
-import '../../../shared/split.dart';
 import '../../../shared/table/table.dart';
 import '../../../shared/table/table_data.dart';
 import '../vm_developer_common_widgets.dart';
@@ -24,11 +23,7 @@ abstract class _ObjectPoolColumnData extends ColumnData<ObjectPoolEntry> {
 }
 
 class _AddressColumn extends _ObjectPoolColumnData {
-  _AddressColumn()
-      : super(
-          'Offset',
-          fixedWidthPx: 160,
-        );
+  _AddressColumn() : super('Offset', fixedWidthPx: 160);
 
   @override
   int getValue(ObjectPoolEntry dataObject) {
@@ -56,6 +51,7 @@ class _DartObjectColumn extends _ObjectPoolColumnData
     BuildContext context,
     ObjectPoolEntry data, {
     bool isRowSelected = false,
+    bool isRowHovered = false,
     VoidCallback? onPressed,
   }) {
     if (data.value is int) return Text(data.value.toString());
@@ -70,6 +66,7 @@ class _DartObjectColumn extends _ObjectPoolColumnData
 /// related to [ObjectPool] objects in the Dart VM.
 class VmObjectPoolDisplay extends StatelessWidget {
   const VmObjectPoolDisplay({
+    super.key,
     required this.controller,
     required this.objectPool,
   });
@@ -79,7 +76,7 @@ class VmObjectPoolDisplay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Split(
+    return SplitPane(
       initialFractions: const [0.4, 0.6],
       axis: Axis.vertical,
       children: [
@@ -103,10 +100,10 @@ class VmObjectPoolDisplay extends StatelessWidget {
 
 class ObjectPoolTable extends StatelessWidget {
   ObjectPoolTable({
-    Key? key,
+    super.key,
     required this.objectPool,
     required this.controller,
-  }) : super(key: key);
+  });
 
   late final columns = <ColumnData<ObjectPoolEntry>>[
     _AddressColumn(),

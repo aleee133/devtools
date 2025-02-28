@@ -1,16 +1,15 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'package:vm_service/vm_service.dart';
 
 import '../../primitives/utils.dart';
 
 class _JsonFields {
-  static const String file = 'file';
-  static const String line = 'line';
-  static const String name = 'name';
-  static const String column = 'column';
+  static const file = 'file';
+  static const line = 'line';
+  static const column = 'column';
 }
 
 class InspectorSourceLocation {
@@ -19,15 +18,12 @@ class InspectorSourceLocation {
   final Map<String, Object?> json;
   final InspectorSourceLocation? parent;
 
-  String? get path => JsonUtils.getStringMember(
-        json,
-        _JsonFields.file,
-      );
+  String? get path => JsonUtils.getStringMember(json, _JsonFields.file);
 
   String? getFile() {
     final fileName = path;
     if (fileName == null) {
-      return parent != null ? parent!.getFile() : null;
+      return parent?.getFile();
     }
 
     return fileName;
@@ -35,29 +31,13 @@ class InspectorSourceLocation {
 
   int getLine() => JsonUtils.getIntMember(json, _JsonFields.line);
 
-  String? getName() => JsonUtils.getStringMember(json, _JsonFields.name);
-
   int getColumn() => JsonUtils.getIntMember(json, _JsonFields.column);
-
-  SourcePosition? getXSourcePosition() {
-    final file = getFile();
-    if (file == null) {
-      return null;
-    }
-    final int line = getLine();
-    final int column = getColumn();
-    if (line < 0 || column < 0) {
-      return null;
-    }
-    return SourcePosition(file: file, line: line - 1, column: column - 1);
-  }
 }
 
 class SourcePosition {
   const SourcePosition({
     required this.line,
     required this.column,
-    this.file,
     this.tokenPos,
   });
 
@@ -69,13 +49,12 @@ class SourcePosition {
     );
   }
 
-  final String? file;
   final int? line;
   final int? column;
   final int? tokenPos;
 
   @override
-  bool operator ==(other) {
+  bool operator ==(Object other) {
     return other is SourcePosition &&
         other.line == line &&
         other.column == column &&

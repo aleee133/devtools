@@ -1,6 +1,6 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import '../../../../shared/primitives/trees.dart';
 import '../../../../shared/primitives/utils.dart';
@@ -24,23 +24,18 @@ class FrameAnalysis {
   /// children of the "Layout" event.
   ///
   /// Example:
-  /// [-----Build----][-----------------Layout-----------------]
-  ///                       [--Build--]     [----Build----]
+  /// [-----BUILD----][-----------------LAYOUT (root)-----------------]
+  ///                       [--BUILD--]     [----BUILD----]
   late FramePhase buildPhase = _generateBuildPhase();
 
   FramePhase _generateBuildPhase() {
     final uiEvent = frame.timelineEventData.uiEvent;
     if (uiEvent == null) {
-      return FramePhase.build(events: <SyncTimelineEvent>[]);
+      return FramePhase.build(events: <FlutterTimelineEvent>[]);
     }
-    final buildEvents = uiEvent
-        .nodesWithCondition(
-          (event) =>
-              event.name
-                  ?.caseInsensitiveEquals(FramePhaseType.build.eventName) ??
-              false,
-        )
-        .cast<SyncTimelineEvent>();
+    final buildEvents = uiEvent.nodesWithCondition(
+      (event) => FramePhaseType.build.isMatchForEventName(event.name),
+    );
     return FramePhase.build(events: buildEvents);
   }
 
@@ -53,38 +48,35 @@ class FrameAnalysis {
   /// in the Layout event, outside of the Build events.
   ///
   /// Example:
-  /// [-----------------Layout-----------------]
-  ///    [--Build--]     [----Build----]
+  /// [-----------------LAYOUT (root)-----------------]
+  ///    [--BUILD--]     [----BUILD----]
   late FramePhase layoutPhase = _generateLayoutPhase();
 
   FramePhase _generateLayoutPhase() {
     final uiEvent = frame.timelineEventData.uiEvent;
     if (uiEvent != null) {
       final layoutEvent = uiEvent.firstChildWithCondition(
-        (event) =>
-            event.name
-                ?.caseInsensitiveEquals(FramePhaseType.layout.eventName) ??
-            false,
+        (event) => FramePhaseType.layout.isMatchForEventName(event.name),
       );
 
       if (layoutEvent != null) {
-        final _buildChildren = layoutEvent.shallowNodesWithCondition(
-          (event) => event.name == FramePhaseType.build.eventName,
+        final buildChildren = layoutEvent.shallowNodesWithCondition(
+          (event) => FramePhaseType.build.isMatchForEventName(event.name),
         );
-        final buildDuration = _buildChildren.fold<Duration>(
-          Duration.zero,
-          (previous, TimelineEvent event) {
-            return previous + event.time.duration;
-          },
-        );
+        final buildDuration = buildChildren.fold<Duration>(Duration.zero, (
+          previous,
+          FlutterTimelineEvent event,
+        ) {
+          return previous + event.time.duration;
+        });
 
         return FramePhase.layout(
-          events: <SyncTimelineEvent>[layoutEvent as SyncTimelineEvent],
+          events: <FlutterTimelineEvent>[layoutEvent],
           duration: layoutEvent.time.duration - buildDuration,
         );
       }
     }
-    return FramePhase.layout(events: <SyncTimelineEvent>[]);
+    return FramePhase.layout(events: <FlutterTimelineEvent>[]);
   }
 
   /// Data for the Paint phase of [frame].
@@ -95,17 +87,13 @@ class FrameAnalysis {
   FramePhase _generatePaintPhase() {
     final uiEvent = frame.timelineEventData.uiEvent;
     if (uiEvent == null) {
-      return FramePhase.paint(events: <SyncTimelineEvent>[]);
+      return FramePhase.paint(events: <FlutterTimelineEvent>[]);
     }
     final paintEvent = uiEvent.firstChildWithCondition(
-      (event) =>
-          event.name?.caseInsensitiveEquals(FramePhaseType.paint.eventName) ??
-          false,
+      (event) => FramePhaseType.paint.isMatchForEventName(event.name),
     );
     return FramePhase.paint(
-      events: <SyncTimelineEvent>[
-        if (paintEvent != null) paintEvent as SyncTimelineEvent,
-      ],
+      events: <FlutterTimelineEvent>[if (paintEvent != null) paintEvent],
     );
   }
 
@@ -121,11 +109,13 @@ class FrameAnalysis {
 
   late FramePhase longestUiPhase = _calculateLongestFramePhase();
 
-  bool get hasUiData => _hasUiData ??= [
-        ...buildPhase.events,
-        ...layoutPhase.events,
-        ...paintPhase.events,
-      ].isNotEmpty;
+  bool get hasUiData =>
+      _hasUiData ??=
+          [
+            ...buildPhase.events,
+            ...layoutPhase.events,
+            ...paintPhase.events,
+          ].isNotEmpty;
 
   bool? _hasUiData;
 
@@ -167,31 +157,31 @@ class FrameAnalysis {
   void _countExpensiveOperations() {
     assert(_saveLayerCount == null);
     assert(_intrinsicOperationsCount == null);
-    int _saveLayer = 0;
+    int saveLayer = 0;
     for (final paintEvent in paintPhase.events) {
-      breadthFirstTraversal<TimelineEvent>(
+      breadthFirstTraversal<FlutterTimelineEvent>(
         paintEvent,
         action: (event) {
           if (event.name!.caseInsensitiveContains(saveLayerEventName)) {
-            _saveLayer++;
+            saveLayer++;
           }
         },
       );
     }
-    _saveLayerCount = _saveLayer;
+    _saveLayerCount = saveLayer;
 
-    int _intrinsics = 0;
+    int intrinsics = 0;
     for (final layoutEvent in layoutPhase.events) {
-      breadthFirstTraversal<TimelineEvent>(
+      breadthFirstTraversal<FlutterTimelineEvent>(
         layoutEvent,
         action: (event) {
           if (event.name!.caseInsensitiveContains(intrinsicsEventSuffix)) {
-            _intrinsics++;
+            intrinsics++;
           }
         },
       );
     }
-    _intrinsicOperationsCount = _intrinsics;
+    _intrinsicOperationsCount = intrinsics;
   }
 
   int? buildFlex;
@@ -244,39 +234,56 @@ enum FramePhaseType {
 
   static const _buildEventName = 'Build';
 
-  static const _layoutEventName = 'Layout';
+  static const _layoutEventName = 'Layout (root)';
 
-  static const _paintEventName = 'Paint';
+  static const _layoutEventNameLegacy = 'Layout';
+
+  static const _paintEventName = 'Paint (root)';
+
+  static const _paintEventNameLegacy = 'Paint';
 
   static const _rasterEventName = 'Raster';
 
-  String get eventName {
+  String get display {
     switch (this) {
       case build:
         return _buildEventName;
       case layout:
-        return _layoutEventName;
+        return _layoutEventNameLegacy;
       case paint:
-        return _paintEventName;
+        return _paintEventNameLegacy;
       case raster:
         return _rasterEventName;
+    }
+  }
+
+  bool isMatchForEventName(String? eventName) {
+    switch (this) {
+      case build:
+        return _buildEventName.caseInsensitiveEquals(eventName);
+      case layout:
+        return _layoutEventName.caseInsensitiveEquals(eventName) ||
+            _layoutEventNameLegacy.caseInsensitiveEquals(eventName);
+      case paint:
+        return _paintEventName.caseInsensitiveEquals(eventName) ||
+            _paintEventNameLegacy.caseInsensitiveEquals(eventName);
+      case raster:
+        throw StateError('Raster events should not be matched by event name');
     }
   }
 }
 
 class FramePhase {
-  FramePhase._({
-    required this.type,
-    required this.events,
-    Duration? duration,
-  })  : title = type.eventName,
-        duration = duration ??
-            events.fold<Duration>(Duration.zero, (previous, event) {
-              return previous + event.time.duration;
-            });
+  FramePhase._({required this.type, required this.events, Duration? duration})
+    : title = type.display,
+      duration =
+          duration ??
+          events.fold<Duration>(Duration.zero, (previous, event) {
+            return previous + event.time.duration;
+          });
 
   factory FramePhase.build({
-    required List<SyncTimelineEvent> events,
+    required List<FlutterTimelineEvent> events,
     Duration? duration,
   }) {
     return FramePhase._(
@@ -287,7 +294,7 @@ class FramePhase {
   }
 
   factory FramePhase.layout({
-    required List<SyncTimelineEvent> events,
+    required List<FlutterTimelineEvent> events,
     Duration? duration,
   }) {
     return FramePhase._(
@@ -298,7 +305,7 @@ class FramePhase {
   }
 
   factory FramePhase.paint({
-    required List<SyncTimelineEvent> events,
+    required List<FlutterTimelineEvent> events,
     Duration? duration,
   }) {
     return FramePhase._(
@@ -309,7 +316,7 @@ class FramePhase {
   }
 
   factory FramePhase.raster({
-    required List<SyncTimelineEvent> events,
+    required List<FlutterTimelineEvent> events,
     Duration? duration,
   }) {
     return FramePhase._(
@@ -323,7 +330,7 @@ class FramePhase {
 
   final FramePhaseType type;
 
-  final List<SyncTimelineEvent> events;
+  final List<FlutterTimelineEvent> events;
 
   final Duration duration;
 }

@@ -1,15 +1,31 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:io';
 
+import 'package:collection/collection.dart';
 import 'package:path/path.dart' as path;
 
 class DevToolsRepo {
   DevToolsRepo._create(this.repoPath);
 
+  /// The path to the DevTools repository root.
   final String repoPath;
+
+  /// The path to the DevTools 'tool' directory.
+  String get toolDirectoryPath => path.join(repoPath, 'tool');
+
+  /// The path to the 'tool/flutter-sdk' directory.
+  String get toolFlutterSdkPath =>
+      path.join(toolDirectoryPath, sdkDirectoryName);
+
+  /// The name of the Flutter SDK directory.
+  String get sdkDirectoryName => 'flutter-sdk';
+
+  /// The path to the DevTools 'devtools_app' directory.
+  String get devtoolsAppDirectoryPath =>
+      path.join(repoPath, 'packages', 'devtools_app');
 
   @override
   String toString() => '[DevTools $repoPath]';
@@ -17,24 +33,45 @@ class DevToolsRepo {
   /// This returns the DevToolsRepo instance based on the current working
   /// directory.
   ///
-  /// This can fail and return null if the current working directory is not
-  /// contained within a git checkout of DevTools.
-  static DevToolsRepo? getInstance() {
+  /// Throws if the current working directory is not contained within a git
+  /// checkout of DevTools.
+  static DevToolsRepo getInstance() {
     final repoPath = _findRepoRoot(Directory.current);
-    return repoPath == null ? null : DevToolsRepo._create(repoPath);
+    if (repoPath == null) {
+      throw Exception(
+        'dt must be run from inside of the DevTools repository directory',
+      );
+    }
+    return DevToolsRepo._create(repoPath);
   }
 
-  List<Package> getPackages() {
+  /// Returns the list of Dart or Flutter packages contained within the DevTools
+  /// repository.
+  ///
+  /// A Dart or Flutter package is defined as any directory with a pubspec.yaml
+  /// file.
+  ///
+  /// If a package path contains any part on its path that is in [skip], the
+  /// package will not be included in the returned results.
+  ///
+  /// If [includeSubdirectories] is false, packages that are a subdirectory of
+  /// another package will not be included in the returned results.
+  List<Package> getPackages({
+    List<String> skip = const [],
+    bool includeSubdirectories = true,
+  }) {
     final result = <Package>[];
     final repoDir = Directory(repoPath);
 
-    // For the first level of packages, ignore any directory named 'flutter'.
-    for (FileSystemEntity entity in repoDir.listSync()) {
+    for (final entity in repoDir.listSync()) {
       final name = path.basename(entity.path);
-      if (entity is Directory &&
-          !name.startsWith('flutter') &&
-          !name.startsWith('.')) {
-        _collectPackages(entity, result);
+      if (entity is Directory && !name.startsWith('.')) {
+        _collectPackages(
+          entity,
+          result,
+          skip: skip,
+          includeSubdirectories: includeSubdirectories,
+        );
       }
     }
 
@@ -58,34 +95,118 @@ class DevToolsRepo {
     }
   }
 
-  void _collectPackages(Directory dir, List<Package> result) {
+  void _collectPackages(
+    Directory dir,
+    List<Package> result, {
+    bool includeSubdirectories = true,
+    List<String> skip = const [],
+  }) {
+    // Do not collect packages from the Flutter SDK that is stored in the tool/
+    // directory.
+    if (dir.path.contains(path.join('tool', 'flutter-sdk'))) return;
+
     if (_fileExists(dir, 'pubspec.yaml')) {
-      result.add(Package._(this, dir.path));
+      final isTopLevelPackagesDir = dir.path.endsWith('packages');
+      final shouldSkip =
+          skip.firstWhereOrNull((skipDir) => dir.path.contains(skipDir)) !=
+          null;
+      if (isTopLevelPackagesDir || shouldSkip) {
+        // Do not include the top level devtools/packages directory in the results
+        // even though it has a pubspec.yaml file. Also skip any directories
+        // specified by [skip].
+        final reason =
+            isTopLevelPackagesDir
+                ? 'each DevTools package is analyzed individually'
+                : '${skip.toString()} directories are intentionally skipped';
+        print('Skipping ${dir.path} in _collectPackages because $reason.');
+      } else {
+        final ancestor = result.firstWhereOrNull(
+          (p) =>
+          // Remove the last segment of [dir]'s pathSegments to ensure we
+          // are only checking ancestors and not sibling directories with
+          // similar names.
+          (List.from(dir.uri.pathSegments)..safeRemoveLast())
+              // TODO(kenz): this may cause issues for Windows paths.
+              .join('/')
+              .startsWith(p.packagePath),
+        );
+        final ancestorDirectoryAdded = ancestor != null;
+        if (!includeSubdirectories && ancestorDirectoryAdded) {
+          print(
+            'Skipping ${dir.path} in _collectPackages because it is a '
+            'subdirectory of another package (${ancestor.packagePath}).',
+          );
+        } else {
+          result.add(Package._(this, dir.path));
+        }
+      }
     }
 
-    for (FileSystemEntity entity in dir.listSync(followLinks: false)) {
+    for (final entity in dir.listSync(followLinks: false)) {
       final name = path.basename(entity.path);
       if (entity is Directory && !name.startsWith('.') && name != 'build') {
-        _collectPackages(entity, result);
+        _collectPackages(
+          entity,
+          result,
+          skip: skip,
+          includeSubdirectories: includeSubdirectories,
+        );
       }
     }
   }
 
-  String readFile(String filePath) {
-    return File(path.join(repoPath, filePath)).readAsStringSync();
+  /// Reads the file at [uri], which should be a relative path from [repoPath].
+  String readFile(Uri uri) {
+    return File(path.join(repoPath, uri.path)).readAsStringSync();
   }
 }
 
 class FlutterSdk {
   FlutterSdk._(this.sdkPath);
 
-  /// Return the Flutter SDK.
+  static FlutterSdk? _current;
+
+  /// The current located Flutter SDK.
   ///
-  /// This can return null if the Flutter SDK can't be found.
-  static FlutterSdk? getSdk() {
+  /// Tries to locate from the running Dart VM. If not found, will print a
+  /// warning and use Flutter from PATH.
+  static FlutterSdk get current {
+    if (_current == null) {
+      throw Exception(
+        'Cannot use FlutterSdk.current before SDK has been selected.'
+        'SDK selection is done by DevToolsCommandRunner.runCommand().',
+      );
+    }
+    return _current!;
+  }
+
+  /// Sets the active Flutter SDK to the one that contains the Dart VM being
+  /// used to run this script.
+  ///
+  /// Throws if the current VM is not inside a Flutter SDK.
+  static void useFromCurrentVm() {
+    _current = findFromCurrentVm();
+  }
+
+  /// Sets the active Flutter SDK to the one found in the `PATH` environment
+  /// variable (by running which/where).
+  ///
+  /// Throws if an SDK is not found on PATH.
+  static void useFromPathEnvironmentVariable() {
+    _current = findFromPathEnvironmentVariable();
+  }
+
+  /// Finds the Flutter SDK that contains the Dart VM being used to run this
+  /// script.
+  ///
+  /// Throws if the current VM is not inside a Flutter SDK.
+  static FlutterSdk findFromCurrentVm() {
     // Look for it relative to the current Dart process.
     final dartVmPath = Platform.resolvedExecutable;
     final pathSegments = path.split(dartVmPath);
+    // TODO(dantup): Should we add tool/flutter-sdk to the front here, to
+    // ensure we _only_ ever use this one, to avoid potentially updating a
+    // different Flutter if the user runs explicitly with another Flutter?
     final expectedSegments = path.posix.split('bin/cache/dart-sdk/bin/dart');
 
     if (pathSegments.length >= expectedSegments.length) {
@@ -103,12 +224,24 @@ class FlutterSdk {
       }
 
       if (expectedSegments.isEmpty) {
-        return FlutterSdk._(path.joinAll(pathSegments));
+        final flutterSdkRoot = path.joinAll(pathSegments);
+        return FlutterSdk._(flutterSdkRoot);
       }
     }
 
-    // Look to see if we can find the 'flutter' command in the PATH.
-    final result = Process.runSync('which', ['flutter']);
+    throw Exception(
+      'Unable to locate the Flutter SDK from the current running Dart VM:\n'
+      '${Platform.resolvedExecutable}',
+    );
+  }
+
+  /// Finds a Flutter SDK in the `PATH` environment variable
+  /// (by running which/where).
+  ///
+  /// Throws if an SDK is not found on PATH.
+  static FlutterSdk findFromPathEnvironmentVariable() {
+    final whichCommand = Platform.isWindows ? 'where.exe' : 'which';
+    final result = Process.runSync(whichCommand, ['flutter']);
     if (result.exitCode == 0) {
       final sdkPath = result.stdout.toString().split('\n').first.trim();
       // 'flutter/bin'
@@ -117,14 +250,24 @@ class FlutterSdk {
       }
     }
 
-    return null;
+    throw Exception('Unable to locate the Flutter SDK on PATH');
   }
 
   final String sdkPath;
 
-  String get flutterToolPath => path.join(sdkPath, 'bin', 'flutter');
+  static String get flutterExecutableName =>
+      Platform.isWindows ? 'flutter.bat' : 'flutter';
 
-  String get dartToolPath => path.join(sdkPath, 'bin', 'dart');
+  /// On windows, 'dart' is fine for running the .exe from the Dart SDK directly
+  /// but the wrapper in the Flutter bin folder is a .bat and needs an explicit
+  /// extension.
+  static String get dartWrapperExecutableName =>
+      Platform.isWindows ? 'dart.bat' : 'dart';
+
+  String get flutterExePath => path.join(sdkPath, 'bin', flutterExecutableName);
+
+  String get dartExePath =>
+      path.join(sdkPath, 'bin', dartWrapperExecutableName);
 
   String get dartSdkPath => path.join(sdkPath, 'bin', 'cache', 'dart-sdk');
 
@@ -151,11 +294,11 @@ class Package {
   }
 
   void _collectDartFiles(Directory dir, List<String> result) {
-    for (FileSystemEntity entity in dir.listSync(followLinks: false)) {
+    for (final entity in dir.listSync(followLinks: false)) {
       final name = path.basename(entity.path);
       if (entity is Directory && !name.startsWith('.') && name != 'build') {
         _collectDartFiles(entity, result);
-      } else if (entity is File && name.endsWith('.dart')) {
+      } else if (entity is File && path.extension(name) == '.dart') {
         result.add(entity.path);
       }
     }
@@ -171,4 +314,8 @@ bool _fileExists(Directory parent, String name) {
 
 bool _dirExists(Directory parent, String name) {
   return FileSystemEntity.isDirectorySync(path.join(parent.path, name));
+}
+
+extension _SafeAccessList<T> on List<T> {
+  T? safeRemoveLast() => isNotEmpty ? removeLast() : null;
 }

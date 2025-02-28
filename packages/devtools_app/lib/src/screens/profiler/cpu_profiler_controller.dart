@@ -1,9 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/foundation.dart';
 import 'package:vm_service/vm_service.dart' hide Error;
 
@@ -12,7 +13,6 @@ import '../../shared/analytics/analytics.dart' as ga;
 import '../../shared/analytics/constants.dart' as gac;
 import '../../shared/analytics/metrics.dart';
 import '../../shared/globals.dart';
-import '../../shared/primitives/auto_dispose.dart';
 import '../../shared/primitives/utils.dart';
 import '../../shared/ui/filter.dart';
 import '../../shared/ui/search.dart';
@@ -32,10 +32,7 @@ enum CpuProfilerViewType {
   }
 }
 
-enum CpuProfilerTagType {
-  user,
-  vm,
-}
+enum CpuProfilerTagType { user, vm }
 
 enum CpuProfilerBusyStatus {
   fetching,
@@ -51,7 +48,9 @@ class CpuProfilerController extends DisposableController
         FilterControllerMixin<CpuStackFrame>,
         AutoDisposeControllerMixin {
   CpuProfilerController() {
-    subscribeToFilterChanges();
+    // TODO(https://github.com/flutter/devtools/issues/7727): add support for
+    // persisting cpu profiler filter.
+    initFilterController();
   }
 
   /// Tag to represent when no user tag filters are applied.
@@ -91,15 +90,22 @@ class CpuProfilerController extends DisposableController
   /// The stored profiles are not guaranteed to be processed.
   CpuProfileStore get cpuProfileStore =>
       _cpuProfileStoreByIsolateId.putIfAbsent(
-        serviceManager.isolateManager.selectedIsolate.value?.id ?? '',
+        serviceConnection
+                .serviceManager
+                .isolateManager
+                .selectedIsolate
+                .value
+                ?.id ??
+            '',
         () => CpuProfileStore(),
       );
 
   /// Store of cached CPU profiles for each isolate.
   final _cpuProfileStoreByIsolateId = <String, CpuProfileStore>{};
 
-  late final methodTableController =
-      MethodTableController(dataNotifier: dataNotifier);
+  late final methodTableController = MethodTableController(
+    dataNotifier: dataNotifier,
+  );
 
   /// Notifies that new cpu profile data is available.
   ValueListenable<CpuProfileData?> get dataNotifier => _dataNotifier;
@@ -108,8 +114,9 @@ class CpuProfilerController extends DisposableController
   /// The current busy state of the cpu profiler.
   ValueListenable<CpuProfilerBusyStatus> get profilerBusyStatus =>
       _profilerBusyStatus;
-  final _profilerBusyStatus =
-      ValueNotifier<CpuProfilerBusyStatus>(CpuProfilerBusyStatus.none);
+  final _profilerBusyStatus = ValueNotifier<CpuProfilerBusyStatus>(
+    CpuProfilerBusyStatus.none,
+  );
 
   /// Notifies that a cpu stack frame was selected.
   ValueListenable<CpuStackFrame?> get selectedCpuStackFrameNotifier =>
@@ -122,42 +129,61 @@ class CpuProfilerController extends DisposableController
 
   Iterable<String> get userTags =>
       cpuProfileStore
-          .lookupProfile(
-            label: userTagNone,
-          )
+          .lookupProfile(label: userTagNone)
           ?.functionProfile
           .userTags ??
       const <String>[];
 
   ValueListenable<CpuProfilerViewType> get viewType => _viewType;
-  final _viewType =
-      ValueNotifier<CpuProfilerViewType>(CpuProfilerViewType.function);
+  final _viewType = ValueNotifier<CpuProfilerViewType>(
+    CpuProfilerViewType.function,
+  );
+
+  static const _nativeFilterId = 'native';
+  static const _coreDartFilterId = 'core-dart';
+  static const _coreFlutterFilterId = 'core-flutter';
+  static const _uriQueryFilterId = 'cpu-profiler-uri-filter';
 
   /// The toggle filters available for the CPU profiler.
   @override
-  List<ToggleFilter<CpuStackFrame>> createToggleFilters() => [
-        ToggleFilter<CpuStackFrame>(
-          name: 'Hide Native code',
-          includeCallback: (stackFrame) => !stackFrame.isNative,
-          enabledByDefault: true,
-        ),
-        ToggleFilter<CpuStackFrame>(
-          name: 'Hide core Dart libraries',
-          includeCallback: (stackFrame) => !stackFrame.isDartCore,
-        ),
-        if (serviceManager.connectedApp?.isFlutterAppNow ?? true)
-          ToggleFilter<CpuStackFrame>(
-            name: 'Hide core Flutter libraries',
-            includeCallback: (stackFrame) => !stackFrame.isFlutterCore,
-          ),
-      ];
-
-  static const uriFilterId = 'cpu-profiler-uri-filter';
+  SettingFilters<CpuStackFrame> createSettingFilters() => [
+    ToggleFilter<CpuStackFrame>(
+      id: _nativeFilterId,
+      name: 'Hide Native code',
+      includeCallback: (stackFrame) => !stackFrame.isNative,
+      defaultValue: true,
+    ),
+    ToggleFilter<CpuStackFrame>(
+      id: _coreDartFilterId,
+      name: 'Hide core Dart libraries',
+      includeCallback: (stackFrame) => !stackFrame.isDartCore,
+      defaultValue: false,
+    ),
+    if (serviceConnection.serviceManager.connectedApp?.isFlutterAppNow ?? true)
+      ToggleFilter<CpuStackFrame>(
+        id: _coreFlutterFilterId,
+        name: 'Hide core Flutter libraries',
+        includeCallback: (stackFrame) => !stackFrame.isFlutterCore,
+        defaultValue: false,
+      ),
+  ];
 
   @override
-  Map<String, QueryFilterArgument> createQueryFilterArgs() => {
-        uriFilterId: QueryFilterArgument(keys: ['uri', 'u']),
-      };
+  Map<String, QueryFilterArgument<CpuStackFrame>> createQueryFilterArgs() => {
+    _uriQueryFilterId: QueryFilterArgument<CpuStackFrame>(
+      keys: ['uri', 'u'],
+      exampleUsages: [
+        'uri:my_dart_package/some_lib.dart',
+        '-u:some_lib_to_hide',
+      ],
+      dataValueProvider: (stackFrame) => stackFrame.packageUri,
+      substringMatch: true,
+    ),
+  };
+
+  @override
+  ValueNotifier<String>? get filterTagNotifier =>
+      preferences.cpuProfiler.filterTag;
 
   int selectedProfilerTabIndex = 0;
 
@@ -190,23 +216,23 @@ class CpuProfilerController extends DisposableController
 
   /// Notifies that the vm profiler flag has changed.
   ValueNotifier<Flag>? get profilerFlagNotifier =>
-      serviceManager.vmFlagManager.flag(vm_flags.profiler) ??
-      ValueNotifier<Flag>(Flag());
+      serviceConnection.vmFlagManager.flag(vm_flags.profiler);
 
   ValueNotifier<Flag>? get profilePeriodFlag =>
-      serviceManager.vmFlagManager.flag(vm_flags.profilePeriod);
+      serviceConnection.vmFlagManager.flag(vm_flags.profilePeriod);
 
   /// Whether the profiler is enabled.
   ///
   /// Clients interested in the current value of [profilerFlagNotifier] should
   /// use this getter. Otherwise, clients subscribing to change notifications,
   /// should listen to [profilerFlagNotifier].
-  bool get profilerEnabled => offlineController.offlineMode.value
-      ? true
-      : profilerFlagNotifier?.value.valueAsString == 'true';
+  bool get profilerEnabled =>
+      offlineDataController.showingOfflineData.value
+          ? true
+          : profilerFlagNotifier?.value.valueAsString == 'true';
 
   Future<Response> enableCpuProfiler() {
-    return serviceManager.service!.enableCpuProfiler();
+    return serviceConnection.serviceManager.service!.enableCpuProfiler();
   }
 
   Future<void> pullAndProcessProfile({
@@ -229,10 +255,8 @@ class CpuProfilerController extends DisposableController
       // TODO(kenz): add a cancel button to the processing UI in case pulling a
       // large payload from the vm service takes a long time.
       _profilerBusyStatus.value = CpuProfilerBusyStatus.fetching;
-      cpuProfiles = await serviceManager.service!.getCpuProfile(
-        startMicros: startMicros,
-        extentMicros: extentMicros,
-      );
+      cpuProfiles = await serviceConnection.serviceManager.service!
+          .getCpuProfile(startMicros: startMicros, extentMicros: extentMicros);
       await processAndSetData(
         cpuProfiles,
         processId: processId,
@@ -247,12 +271,13 @@ class CpuProfilerController extends DisposableController
       // operation for analytics.
       await ga.timeAsync(
         gac.cpuProfiler,
-        gac.cpuProfileProcessingTime,
+        gac.CpuProfilerEvents.cpuProfileProcessingTime.name,
         asyncOperation: pullAndProcessHelper,
-        screenMetricsProvider: () => ProfilerScreenMetrics(
-          cpuSampleCount: cpuProfiles.profileMetaData.sampleCount,
-          cpuStackDepth: cpuProfiles.profileMetaData.stackDepth,
-        ),
+        screenMetricsProvider:
+            () => ProfilerScreenMetrics(
+              cpuSampleCount: cpuProfiles.profileMetaData.sampleCount,
+              cpuStackDepth: cpuProfiles.profileMetaData.stackDepth,
+            ),
       );
     } on ProcessCancelledException catch (_) {
       // Do nothing for instances of [ProcessCancelledException].
@@ -267,10 +292,7 @@ class CpuProfilerController extends DisposableController
   }) async {
     assert(_profilerBusyStatus.value == CpuProfilerBusyStatus.processing);
     if (storeAsUserTagNone) {
-      cpuProfileStore.storeProfile(
-        cpuProfiles,
-        label: userTagNone,
-      );
+      cpuProfileStore.storeProfile(cpuProfiles, label: userTagNone);
       cpuProfileStore.storeProfile(
         cpuProfiles,
         time: cpuProfiles.profileMetaData.time,
@@ -281,10 +303,7 @@ class CpuProfilerController extends DisposableController
       cpuProfiles = _filterData(cpuProfiles);
     }
 
-    await cpuProfiles.process(
-      transformer: transformer,
-      processId: processId,
-    );
+    await cpuProfiles.process(transformer: transformer, processId: processId);
     if (storeAsUserTagNone && shouldApplyFilters) {
       cpuProfileStore.storeProfile(
         cpuProfiles,
@@ -413,27 +432,26 @@ class CpuProfilerController extends DisposableController
       _dataNotifier.value = null;
 
       if (appStartUpProfileWithFilters != null) {
-        _dataNotifier.value =
-            appStartUpProfileWithFilters.getActive(viewType.value);
+        _dataNotifier.value = appStartUpProfileWithFilters.getActive(
+          viewType.value,
+        );
         refreshSearchMatches();
         return;
       }
 
       if (appStartUpProfile == null) {
-        final cpuProfile = await serviceManager.service!.getCpuProfile(
-          startMicros: 0,
-          // Using [maxJsInt] as [extentMicros] for the getCpuProfile requests will
-          // give us all cpu samples we have available.
-          extentMicros: maxJsInt,
-        );
+        final cpuProfile = await serviceConnection.serviceManager.service!
+            .getCpuProfile(
+              startMicros: 0,
+              // Using [maxJsInt] as [extentMicros] for the getCpuProfile requests will
+              // give us all cpu samples we have available.
+              extentMicros: maxJsInt,
+            );
         appStartUpProfile = CpuProfilePair.fromUserTag(
           cpuProfile,
           appStartUpUserTag,
         );
-        cpuProfileStore.storeProfile(
-          appStartUpProfile,
-          label: userTagNone,
-        );
+        cpuProfileStore.storeProfile(appStartUpProfile, label: userTagNone);
         cpuProfileStore.storeProfile(
           appStartUpProfile,
           label: appStartUpUserTag,
@@ -487,10 +505,7 @@ class CpuProfilerController extends DisposableController
     assert(data.processed);
     _dataNotifier.value = data.getActive(viewType.value);
     if (storeAsUserTagNone) {
-      cpuProfileStore.storeProfile(
-        data,
-        label: userTagNone,
-      );
+      cpuProfileStore.storeProfile(data, label: userTagNone);
     }
   }
 
@@ -501,9 +516,9 @@ class CpuProfilerController extends DisposableController
     _profilerBusyStatus.value = CpuProfilerBusyStatus.processing;
 
     try {
-      _dataNotifier.value = await processDataForTag(tag).then(
-        (e) => e.getActive(viewType.value),
-      );
+      _dataNotifier.value = await processDataForTag(
+        tag,
+      ).then((e) => e.getActive(viewType.value));
     } catch (e, stackTrace) {
       // In the event of an error, reset the data to the original CPU profile.
       final filteredOriginalData = await lookupProfileAndProcess(
@@ -530,14 +545,14 @@ class CpuProfilerController extends DisposableController
       label: tag,
       createIfAbsent: () {
         final fullData = cpuProfileStore.lookupProfile(label: userTagNone)!;
-        final data = tag == groupByUserTag || tag == groupByVmTag
-            ? CpuProfilePair.withTagRoots(
-                fullData,
-                tag == groupByUserTag
-                    ? CpuProfilerTagType.user
-                    : CpuProfilerTagType.vm,
-              )
-            : CpuProfilePair.fromUserTag(fullData, tag);
+        final tagType =
+            tag == groupByUserTag
+                ? CpuProfilerTagType.user
+                : CpuProfilerTagType.vm;
+        final data =
+            tag == groupByUserTag || tag == groupByVmTag
+                ? CpuProfilePair.withTagRoots(fullData, tagType)
+                : CpuProfilePair.fromUserTag(fullData, tag);
         cpuProfileStore.storeProfile(data, label: tag);
         return data;
       },
@@ -549,9 +564,7 @@ class CpuProfilerController extends DisposableController
   void updateViewForType(CpuProfilerViewType type) {
     _viewType.value = type;
     _dataNotifier.value = cpuProfileStore
-        .lookupProfile(
-          label: _wrapWithFilterTag(_userTagFilter.value),
-        )
+        .lookupProfile(label: _wrapWithFilterTag(_userTagFilter.value))
         ?.getActive(type);
   }
 
@@ -563,7 +576,7 @@ class CpuProfilerController extends DisposableController
 
   Future<void> clear() async {
     reset();
-    await serviceManager.service!.clearSamples();
+    await serviceConnection.serviceManager.service!.clearSamples();
   }
 
   void reset({CpuProfileData? data}) {
@@ -583,9 +596,10 @@ class CpuProfilerController extends DisposableController
     // it is late initialized with a reference to [_dataNotifier].
     methodTableController.dispose();
     _dataNotifier.dispose();
-    _selectedCpuStackFrameNotifier.dispose();
     _profilerBusyStatus.dispose();
-    methodTableController.dispose();
+    _selectedCpuStackFrameNotifier.dispose();
+    _userTagFilter.dispose();
+    _viewType.dispose();
     super.dispose();
   }
 
@@ -614,9 +628,7 @@ class CpuProfilerController extends DisposableController
     } else {
       // Lookup the cpu profile from the cached [cpuProfileStore] if present.
       final dataLabel = _wrapWithFilterTag(_userTagFilter.value);
-      filteredData = cpuProfileStore.lookupProfile(
-        label: dataLabel,
-      );
+      filteredData = cpuProfileStore.lookupProfile(label: dataLabel);
 
       if (filteredData == null) {
         // TODO(https://github.com/flutter/devtools/issues/5203): optimize
@@ -640,10 +652,7 @@ class CpuProfilerController extends DisposableController
 
         final filterFrom = dataForCurrentTag;
         filteredData = _filterData(filterFrom, filter: filter);
-        cpuProfileStore.storeProfile(
-          filteredData,
-          label: dataLabel,
-        );
+        cpuProfileStore.storeProfile(filteredData, label: dataLabel);
       }
     }
     unawaited(
@@ -664,27 +673,22 @@ class CpuProfilerController extends DisposableController
     Filter<CpuStackFrame>? filter,
   }) {
     filter ??= activeFilter.value;
-    final filterCallback = (CpuStackFrame stackFrame) {
-      for (final toggleFilter in filter!.toggleFilters) {
-        if (toggleFilter.enabled.value &&
-            !toggleFilter.includeCallback(stackFrame)) {
-          return false;
-        }
-      }
+    bool filterCallback(CpuStackFrame stackFrame) {
+      final filteredOutBySettingFilters = filter!.settingFilters.any(
+        (settingFilter) => !settingFilter.includeData(stackFrame),
+      );
+      if (filteredOutBySettingFilters) return false;
 
       final queryFilter = filter.queryFilter;
       if (!queryFilter.isEmpty) {
-        final uriArg = queryFilter.filterArguments[uriFilterId];
-        if (uriArg != null &&
-            !uriArg.matchesValue(
-              stackFrame.packageUri,
-              substringMatch: true,
-            )) {
-          return false;
-        }
+        final filteredOutByQueryFilterArgument = queryFilter
+            .filterArguments
+            .values
+            .any((argument) => !argument.matchesValue(stackFrame));
+        if (filteredOutByQueryFilterArgument) return false;
 
-        if (queryFilter.substrings.isNotEmpty) {
-          for (final substring in queryFilter.substrings) {
+        if (queryFilter.substringExpressions.isNotEmpty) {
+          for (final substring in queryFilter.substringExpressions) {
             bool matches(String? stringToMatch) {
               return stringToMatch?.caseInsensitiveContains(substring) ?? false;
             }
@@ -697,7 +701,8 @@ class CpuProfilerController extends DisposableController
       }
 
       return true;
-    };
+    }
+
     return CpuProfilePair.filterFrom(originalData, filterCallback);
   }
 }

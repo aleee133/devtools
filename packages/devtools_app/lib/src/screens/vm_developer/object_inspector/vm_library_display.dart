@@ -1,11 +1,11 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
+import 'package:devtools_app_shared/ui.dart';
 import 'package:flutter/material.dart';
 import 'package:vm_service/vm_service.dart';
 
-import '../../../shared/theme.dart';
 import '../vm_developer_common_widgets.dart';
 import 'object_inspector_view_controller.dart';
 import 'vm_object_model.dart';
@@ -14,6 +14,7 @@ import 'vm_object_model.dart';
 /// related to library objects in the Dart VM.
 class VmLibraryDisplay extends StatelessWidget {
   const VmLibraryDisplay({
+    super.key,
     required this.controller,
     required this.library,
   });
@@ -46,10 +47,7 @@ class VmLibraryDisplay extends StatelessWidget {
     LibraryObject library,
   ) {
     return [
-      ...vmObjectGeneralDataRows(
-        controller,
-        library,
-      ),
+      ...vmObjectGeneralDataRows(controller, library),
       serviceObjectLinkBuilderMapEntry(
         controller: controller,
         key: 'URI',
@@ -57,19 +55,14 @@ class VmLibraryDisplay extends StatelessWidget {
         object:
             (library.obj.uri?.isEmpty ?? false) ? library.script! : library.obj,
       ),
-      selectableTextBuilderMapEntry(
-        'VM Name',
-        library.vmName,
-      ),
+      selectableTextBuilderMapEntry('VM Name', library.vmName),
     ];
   }
 }
 
 /// An expandable tile displaying a list of library dependencies
 class LibraryDependencies extends StatelessWidget {
-  const LibraryDependencies({
-    required this.dependencies,
-  });
+  const LibraryDependencies({super.key, required this.dependencies});
 
   final List<LibraryDependency> dependencies;
 
@@ -80,12 +73,7 @@ class LibraryDependencies extends StatelessWidget {
       for (final dep in dependencies)
         Row(
           children: [
-            Flexible(
-              child: SelectableText(
-                dep.description,
-                style: textStyle,
-              ),
-            ),
+            Flexible(child: SelectableText(dep.description, style: textStyle)),
           ],
         ),
     ];
@@ -95,10 +83,7 @@ class LibraryDependencies extends StatelessWidget {
   Widget build(BuildContext context) {
     return VmExpansionTile(
       title: 'Dependencies (${dependencies.length})',
-      children: prettyRows(
-        context,
-        dependencyRows(context),
-      ),
+      children: prettyRows(context, dependencyRows(context)),
     );
   }
 }
@@ -115,9 +100,7 @@ extension LibraryDependencyExtension on LibraryDependency {
 
     addSpace();
 
-    description.write(
-      target?.name ?? target?.uri ?? '<Library name>',
-    );
+    description.write(target?.name ?? target?.uri ?? '<Library name>');
 
     final libPrefix = prefix;
 

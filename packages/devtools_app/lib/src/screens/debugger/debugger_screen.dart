@@ -1,31 +1,27 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 
-import 'package:codicon/codicon.dart';
+import 'package:devtools_app_shared/shared.dart';
+import 'package:devtools_app_shared/ui.dart';
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Stack;
 import 'package:flutter/scheduler.dart';
-import 'package:provider/provider.dart';
 import 'package:vm_service/vm_service.dart';
 
 import '../../shared/analytics/analytics.dart' as ga;
 import '../../shared/analytics/constants.dart' as gac;
-import '../../shared/common_widgets.dart';
 import '../../shared/diagnostics/primitives/source_location.dart';
-import '../../shared/flex_split_column.dart';
+import '../../shared/framework/routing.dart';
+import '../../shared/framework/screen.dart';
 import '../../shared/globals.dart';
-import '../../shared/primitives/auto_dispose.dart';
+import '../../shared/managers/banner_messages.dart';
 import '../../shared/primitives/listenable.dart';
-import '../../shared/primitives/simple_items.dart';
-import '../../shared/routing.dart';
-import '../../shared/screen.dart';
-import '../../shared/split.dart';
-import '../../shared/theme.dart';
-import '../../shared/ui/icons.dart';
-import '../../shared/utils.dart';
+import '../../shared/primitives/utils.dart';
+import '../../shared/ui/common_widgets.dart';
 import 'breakpoints.dart';
 import 'call_stack.dart';
 import 'codeview.dart';
@@ -40,22 +36,19 @@ import 'variables.dart';
 
 class DebuggerScreen extends Screen {
   DebuggerScreen()
-      : super.conditional(
-          id: id,
-          requiresDebugBuild: true,
-          title: ScreenMetaData.debugger.title,
-          icon: Octicons.bug,
-          showFloatingDebuggerControls: false,
-        );
+    : super.fromMetaData(
+        ScreenMetaData.debugger,
+        showFloatingDebuggerControls: false,
+      );
 
   static final id = ScreenMetaData.debugger.id;
 
   @override
-  bool showConsole(bool embed) => true;
+  bool showConsole(EmbedMode embedMode) => true;
 
   @override
   ShortcutsConfiguration buildKeyboardShortcuts(BuildContext context) {
-    final controller = Provider.of<DebuggerController>(context);
+    final controller = screenControllers.lookup<DebuggerController>();
     final shortcuts = <LogicalKeySet, Intent>{
       goToLineNumberKeySet: GoToLineNumberIntent(context, controller),
       searchInFileKeySet: SearchInFileIntent(controller),
@@ -79,34 +72,29 @@ class DebuggerScreen extends Screen {
       const FixedValueListenable<bool>(true);
 
   @override
-  Widget build(BuildContext context) => const DebuggerScreenBody();
+  Widget buildScreenBody(BuildContext context) =>
+      const _DebuggerScreenBodyWrapper();
 
   @override
   Widget buildStatus(BuildContext context) {
-    final controller = Provider.of<DebuggerController>(context);
+    final controller = screenControllers.lookup<DebuggerController>();
     return DebuggerStatus(controller: controller);
   }
 }
 
-class DebuggerScreenBody extends StatefulWidget {
-  const DebuggerScreenBody();
-
-  static final codeViewKey = GlobalKey(debugLabel: 'codeViewKey');
-  static final scriptViewKey = GlobalKey(debugLabel: 'scriptViewKey');
-  static const callStackCopyButtonKey =
-      Key('debugger_call_stack_copy_to_clipboard_button');
+/// Wrapper widget for the [DebuggerScreenBody] that handles screen
+/// initialization.
+class _DebuggerScreenBodyWrapper extends StatefulWidget {
+  const _DebuggerScreenBodyWrapper();
 
   @override
-  DebuggerScreenBodyState createState() => DebuggerScreenBodyState();
+  _DebuggerScreenBodyWrapperState createState() =>
+      _DebuggerScreenBodyWrapperState();
 }
 
-class DebuggerScreenBodyState extends State<DebuggerScreenBody>
-    with
-        AutoDisposeMixin,
-        ProvidedControllerMixin<DebuggerController, DebuggerScreenBody> {
-  static const callStackTitle = 'Call Stack';
-  static const variablesTitle = 'Variables';
-  static const breakpointsTitle = 'Breakpoints';
+class _DebuggerScreenBodyWrapperState extends State<_DebuggerScreenBodyWrapper>
+    with AutoDisposeMixin {
+  late DebuggerController controller;
 
   late bool _shownFirstScript;
 
@@ -115,9 +103,14 @@ class DebuggerScreenBodyState extends State<DebuggerScreenBody>
     super.initState();
     ga.screen(DebuggerScreen.id);
     ga.timeStart(DebuggerScreen.id, gac.pageReady);
+
+    controller = screenControllers.lookup<DebuggerController>();
     _shownFirstScript = false;
     SchedulerBinding.instance.addPostFrameCallback((timeStamp) {
-      if (!_shownFirstScript) return;
+      if (!_shownFirstScript ||
+          controller.codeViewController.navigationInProgress) {
+        return;
+      }
       final routerDelegate = DevToolsRouterDelegate.of(context);
       routerDelegate.updateStateIfChanged(
         CodeViewSourceLocationNavigationState(
@@ -126,98 +119,222 @@ class DebuggerScreenBodyState extends State<DebuggerScreenBody>
         ),
       );
     });
+    unawaited(controller.onFirstDebuggerScreenLoad());
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!initController()) return;
-    unawaited(controller.onFirstDebuggerScreenLoad());
+    pushDebuggerIdeRecommendationMessage(context, DebuggerScreen.id);
   }
 
   @override
   Widget build(BuildContext context) {
-    final codeViewController = controller.codeViewController;
-    return Split(
+    return DebuggerScreenBody(
+      shownFirstScript: () => _shownFirstScript,
+      setShownFirstScript: (value) => _shownFirstScript = value,
+    );
+  }
+}
+
+@visibleForTesting
+class DebuggerScreenBody extends StatelessWidget {
+  const DebuggerScreenBody({
+    super.key,
+    required this.shownFirstScript,
+    required this.setShownFirstScript,
+  });
+
+  final bool Function() shownFirstScript;
+
+  final void Function(bool) setShownFirstScript;
+
+  @override
+  Widget build(BuildContext context) {
+    return SplitPane(
       axis: Axis.horizontal,
       initialFractions: const [0.25, 0.75],
       children: [
-        RoundedOutlinedBorder(
-          clip: true,
-          child: debuggerPanes(),
+        const RoundedOutlinedBorder(clip: true, child: DebuggerWindows()),
+        DebuggerSourceAndControls(
+          shownFirstScript: shownFirstScript,
+          setShownFirstScript: setShownFirstScript,
         ),
-        Column(
-          children: [
-            const DebuggingControls(),
-            const SizedBox(height: intermediateSpacing),
-            Expanded(
-              child: ValueListenableBuilder<bool>(
-                valueListenable: codeViewController.fileExplorerVisible,
-                builder: (context, visible, child) {
-                  // Conditional expression
-                  // ignore: prefer-conditional-expression
-                  if (visible) {
-                    // TODO(devoncarew): Animate this opening and closing.
-                    return Split(
-                      axis: Axis.horizontal,
-                      initialFractions: const [0.7, 0.3],
-                      children: [
-                        child!,
-                        RoundedOutlinedBorder(
-                          clip: true,
-                          child: ProgramExplorer(
-                            controller:
-                                codeViewController.programExplorerController,
-                            onNodeSelected: _onNodeSelected,
-                          ),
-                        ),
-                      ],
-                    );
-                  } else {
-                    return child!;
-                  }
-                },
-                child: DualValueListenableBuilder<ScriptRef?, ParsedScript?>(
-                  firstListenable: codeViewController.currentScriptRef,
-                  secondListenable: codeViewController.currentParsedScript,
-                  builder: (context, scriptRef, parsedScript, _) {
-                    if (scriptRef != null &&
-                        parsedScript != null &&
-                        !_shownFirstScript) {
-                      ga.timeEnd(
-                        DebuggerScreen.id,
-                        gac.pageReady,
-                      );
-                      unawaited(
-                        serviceManager.sendDwdsEvent(
-                          screen: DebuggerScreen.id,
-                          action: gac.pageReady,
-                        ),
-                      );
-                      _shownFirstScript = true;
-                    }
+      ],
+    );
+  }
+}
 
-                    return CodeView(
-                      key: DebuggerScreenBody.codeViewKey,
-                      codeViewController: codeViewController,
-                      debuggerController: controller,
-                      scriptRef: scriptRef,
-                      parsedScript: parsedScript,
-                      onSelected: (script, line) => unawaited(
-                        breakpointManager.toggleBreakpoint(script, line),
-                      ),
-                    );
+class DebuggerWindows extends StatelessWidget {
+  const DebuggerWindows({super.key});
+
+  static const callStackTitle = 'Call Stack';
+  static const variablesTitle = 'Variables';
+  static const breakpointsTitle = 'Breakpoints';
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = screenControllers.lookup<DebuggerController>();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return FlexSplitColumn(
+          totalHeight: constraints.maxHeight,
+          initialFractions: const [0.4, 0.4, 0.2],
+          minSizes: const [0.0, 0.0, 0.0],
+          headers: <PreferredSizeWidget>[
+            AreaPaneHeader(
+              title: const Text(callStackTitle),
+              roundedTopBorder: false,
+              includeTopBorder: false,
+              actions: [
+                CopyToClipboardControl(
+                  dataProvider: () {
+                    final callStackList =
+                        controller.stackFramesWithLocation.value
+                            .map((frame) => frame.callStackDisplay)
+                            .toList();
+                    for (var i = 0; i < callStackList.length; i++) {
+                      callStackList[i] = '#$i ${callStackList[i]}';
+                    }
+                    return callStackList.join('\n');
                   },
                 ),
+              ],
+            ),
+            const AreaPaneHeader(
+              title: Text(variablesTitle),
+              roundedTopBorder: false,
+            ),
+            const AreaPaneHeader(
+              title: Text(breakpointsTitle),
+              actions: [_BreakpointsWindowActions()],
+              rightPadding: 0.0,
+              roundedTopBorder: false,
+            ),
+          ],
+          children: const [CallStack(), Variables(), Breakpoints()],
+        );
+      },
+    );
+  }
+}
+
+class _BreakpointsWindowActions extends StatelessWidget {
+  const _BreakpointsWindowActions();
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<List<BreakpointAndSourcePosition>>(
+      valueListenable: breakpointManager.breakpointsWithLocation,
+      builder: (context, breakpoints, _) {
+        return Row(
+          children: [
+            BreakpointsCountBadge(breakpoints: breakpoints),
+            DevToolsTooltip(
+              message: 'Remove all breakpoints',
+              child: ToolbarAction(
+                icon: Icons.delete,
+                size: defaultIconSize,
+                onPressed:
+                    breakpoints.isNotEmpty
+                        ? () => unawaited(breakpointManager.clearBreakpoints())
+                        : null,
               ),
             ),
           ],
+        );
+      },
+    );
+  }
+}
+
+class DebuggerSourceAndControls extends StatelessWidget {
+  const DebuggerSourceAndControls({
+    super.key,
+    required this.shownFirstScript,
+    required this.setShownFirstScript,
+  });
+
+  final bool Function() shownFirstScript;
+
+  final void Function(bool) setShownFirstScript;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = screenControllers.lookup<DebuggerController>();
+    final codeViewController = controller.codeViewController;
+    return Column(
+      children: [
+        const DebuggingControls(),
+        const SizedBox(height: intermediateSpacing),
+        Expanded(
+          child: ValueListenableBuilder<bool>(
+            valueListenable: codeViewController.fileExplorerVisible,
+            builder: (context, visible, child) {
+              // Conditional expression
+              // ignore: prefer-conditional-expression
+              if (visible) {
+                // TODO(devoncarew): Animate this opening and closing.
+                return SplitPane(
+                  axis: Axis.horizontal,
+                  initialFractions: const [0.7, 0.3],
+                  children: [
+                    child!,
+                    RoundedOutlinedBorder(
+                      clip: true,
+                      child: ProgramExplorer(
+                        controller:
+                            codeViewController.programExplorerController,
+                        onNodeSelected:
+                            (node) => _onNodeSelected(context, node),
+                      ),
+                    ),
+                  ],
+                );
+              } else {
+                return child!;
+              }
+            },
+            child: MultiValueListenableBuilder(
+              listenables: [
+                codeViewController.currentScriptRef,
+                codeViewController.currentParsedScript,
+              ],
+              builder: (context, values, _) {
+                final scriptRef = values.first as ScriptRef?;
+                final parsedScript = values.second as ParsedScript?;
+                if (scriptRef != null &&
+                    parsedScript != null &&
+                    !shownFirstScript()) {
+                  ga.timeEnd(DebuggerScreen.id, gac.pageReady);
+                  unawaited(
+                    serviceConnection.sendDwdsEvent(
+                      screen: DebuggerScreen.id,
+                      action: gac.pageReady,
+                    ),
+                  );
+                  setShownFirstScript(true);
+                }
+
+                return CodeView(
+                  codeViewController: codeViewController,
+                  debuggerController: controller,
+                  scriptRef: scriptRef,
+                  parsedScript: parsedScript,
+                  onSelected:
+                      (script, line) => unawaited(
+                        breakpointManager.toggleBreakpoint(script, line),
+                      ),
+                );
+              },
+            ),
+          ),
         ),
       ],
     );
   }
 
-  void _onNodeSelected(VMServiceObjectNode? node) {
+  void _onNodeSelected(BuildContext context, VMServiceObjectNode? node) {
     final location = node?.location;
     if (location != null) {
       final routerDelegate = DevToolsRouterDelegate.of(context);
@@ -232,79 +349,6 @@ class DebuggerScreenBodyState extends State<DebuggerScreenBody>
       });
     }
   }
-
-  Widget debuggerPanes() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return FlexSplitColumn(
-          totalHeight: constraints.maxHeight,
-          initialFractions: const [0.4, 0.4, 0.2],
-          minSizes: const [0.0, 0.0, 0.0],
-          headers: <PreferredSizeWidget>[
-            AreaPaneHeader(
-              title: const Text(callStackTitle),
-              actions: [
-                CopyToClipboardControl(
-                  dataProvider: () {
-                    final List<String> callStackList = controller
-                        .stackFramesWithLocation.value
-                        .map((frame) => frame.callStackDisplay)
-                        .toList();
-                    for (var i = 0; i < callStackList.length; i++) {
-                      callStackList[i] = '#$i ${callStackList[i]}';
-                    }
-                    return callStackList.join('\n');
-                  },
-                  buttonKey: DebuggerScreenBody.callStackCopyButtonKey,
-                ),
-              ],
-              roundedTopBorder: false,
-              includeTopBorder: false,
-            ),
-            const AreaPaneHeader(
-              title: Text(variablesTitle),
-              roundedTopBorder: false,
-            ),
-            AreaPaneHeader(
-              title: const Text(breakpointsTitle),
-              actions: [
-                _breakpointsRightChild(),
-              ],
-              rightPadding: 0.0,
-              roundedTopBorder: false,
-            ),
-          ],
-          children: const [
-            CallStack(),
-            Variables(),
-            Breakpoints(),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _breakpointsRightChild() {
-    return ValueListenableBuilder<List<BreakpointAndSourcePosition>>(
-      valueListenable: breakpointManager.breakpointsWithLocation,
-      builder: (context, breakpoints, _) {
-        return Row(
-          children: [
-            BreakpointsCountBadge(breakpoints: breakpoints),
-            DevToolsTooltip(
-              message: 'Remove all breakpoints',
-              child: ToolbarAction(
-                icon: Icons.delete,
-                onPressed: breakpoints.isNotEmpty
-                    ? () => unawaited(breakpointManager.clearBreakpoints())
-                    : null,
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
 }
 
 class GoToLineNumberIntent extends Intent {
@@ -317,10 +361,7 @@ class GoToLineNumberIntent extends Intent {
 class GoToLineNumberAction extends Action<GoToLineNumberIntent> {
   @override
   void invoke(GoToLineNumberIntent intent) {
-    showGoToLineDialog(
-      intent._context,
-      intent._controller.codeViewController,
-    );
+    showGoToLineDialog(intent._context, intent._controller.codeViewController);
     intent._controller.codeViewController
       ..toggleFileOpenerVisibility(false)
       ..toggleSearchInFileVisibility(false);
@@ -373,21 +414,18 @@ class OpenFileAction extends Action<OpenFileIntent> {
 }
 
 class DebuggerStatus extends StatefulWidget {
-  const DebuggerStatus({
-    Key? key,
-    required this.controller,
-  }) : super(key: key);
+  const DebuggerStatus({super.key, required this.controller});
 
   final DebuggerController controller;
 
   @override
-  _DebuggerStatusState createState() => _DebuggerStatusState();
+  State<DebuggerStatus> createState() => _DebuggerStatusState();
 }
 
 class _DebuggerStatusState extends State<DebuggerStatus> with AutoDisposeMixin {
   String _status = '';
 
-  bool get _isPaused => serviceManager.isMainIsolatePaused;
+  bool get _isPaused => serviceConnection.serviceManager.isMainIsolatePaused;
 
   @override
   void initState() {
@@ -409,20 +447,18 @@ class _DebuggerStatusState extends State<DebuggerStatus> with AutoDisposeMixin {
 
   void _updateStatusOnPause() {
     addAutoDisposeListener(
-      serviceManager.isolateManager.mainIsolateState?.isPaused,
-      () => unawaited(
-        _updateStatus(),
-      ),
+      serviceConnection
+          .serviceManager
+          .isolateManager
+          .mainIsolateState
+          ?.isPaused,
+      () => unawaited(_updateStatus()),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      _status,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-    );
+    return Text(_status, maxLines: 1, overflow: TextOverflow.ellipsis);
   }
 
   Future<void> _updateStatus() async {
@@ -459,7 +495,7 @@ class _DebuggerStatusState extends State<DebuggerStatus> with AutoDisposeMixin {
       return 'paused$reason';
     }
 
-    final fileName = ' at ' + scriptUri.split('/').last;
+    final fileName = ' at ${fileNameFromUri(scriptUri)}';
     final tokenPos = location?.tokenPos;
     final scriptRef = location?.script;
     if (tokenPos == null || scriptRef == null) {
@@ -467,35 +503,46 @@ class _DebuggerStatusState extends State<DebuggerStatus> with AutoDisposeMixin {
     }
 
     final script = await scriptManager.getScript(scriptRef);
-    final pos = SourcePosition.calculatePosition(script, tokenPos);
+    final pos = SourcePosition.calculatePosition(script!, tokenPos);
 
     return 'paused$reason$fileName $pos';
   }
 }
 
 class FloatingDebuggerControls extends StatefulWidget {
+  const FloatingDebuggerControls({super.key});
+
   @override
-  _FloatingDebuggerControlsState createState() =>
+  State<FloatingDebuggerControls> createState() =>
       _FloatingDebuggerControlsState();
 }
 
 class _FloatingDebuggerControlsState extends State<FloatingDebuggerControls>
-    with
-        AutoDisposeMixin,
-        ProvidedControllerMixin<DebuggerController, FloatingDebuggerControls> {
+    with AutoDisposeMixin {
   late double controlHeight;
 
-  bool get _isPaused => serviceManager.isMainIsolatePaused;
+  bool get _isPaused => serviceConnection.serviceManager.isMainIsolatePaused;
+
+  late final DebuggerController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = screenControllers.lookup<DebuggerController>();
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!initController()) return;
     cancelListeners();
 
     controlHeight = _isPaused ? defaultButtonHeight : 0.0;
     addAutoDisposeListener(
-      serviceManager.isolateManager.mainIsolateState?.isPaused,
+      serviceConnection
+          .serviceManager
+          .isolateManager
+          .mainIsolateState
+          ?.isPaused,
       () {
         setState(() {
           if (_isPaused) {
@@ -508,7 +555,8 @@ class _FloatingDebuggerControlsState extends State<FloatingDebuggerControls>
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return AnimatedOpacity(
       opacity: _isPaused ? 1.0 : 0.0,
       duration: longDuration,
@@ -523,17 +571,12 @@ class _FloatingDebuggerControlsState extends State<FloatingDebuggerControls>
         color: colorScheme.warningContainer,
         height: controlHeight,
         child: OutlinedRowGroup(
-          // Default focus color for the light theme - since the background
-          // color of the controls [devtoolsWarning] is the same for both
-          // themes, we will use the same border color.
-          borderColor: Colors.black.withOpacity(0.12),
+          borderColor: theme.focusColor,
           children: [
             Container(
               height: defaultButtonHeight,
               alignment: Alignment.centerLeft,
-              padding: const EdgeInsets.symmetric(
-                horizontal: defaultSpacing,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: defaultSpacing),
               child: Text(
                 'Main isolate is paused in the debugger',
                 style: TextStyle(color: colorScheme.onWarningContainer),
@@ -543,10 +586,10 @@ class _FloatingDebuggerControlsState extends State<FloatingDebuggerControls>
               message: 'Resume',
               child: TextButton(
                 onPressed: controller.resume,
-                child: Icon(
-                  Codicons.debugContinue,
+                child: DevToolsIcon(
+                  iconAsset: 'icons/material_symbols/resume.png',
                   color: Colors.green,
-                  size: defaultIconSize,
+                  size: DebuggingControls.materialIconSize,
                 ),
               ),
             ),
@@ -554,10 +597,10 @@ class _FloatingDebuggerControlsState extends State<FloatingDebuggerControls>
               message: 'Step over',
               child: TextButton(
                 onPressed: controller.stepOver,
-                child: Icon(
-                  Codicons.debugStepOver,
+                child: DevToolsIcon(
+                  iconAsset: 'icons/material_symbols/step_over.png',
                   color: Colors.black,
-                  size: defaultIconSize,
+                  size: DebuggingControls.materialIconSize,
                 ),
               ),
             ),

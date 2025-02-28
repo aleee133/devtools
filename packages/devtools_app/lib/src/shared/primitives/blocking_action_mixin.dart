@@ -1,6 +1,6 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 
@@ -28,7 +28,7 @@ mixin BlockingActionMixin<T extends StatefulWidget> on State<T> {
   ///
   /// The future returned by this method completes when either the future
   /// returned by the callback completes or the State object is disposed.
-  Future<void> blockWhileInProgress(Future callback()) async {
+  Future<void> blockWhileInProgress(Future Function() callback) async {
     setState(() {
       _actionInProgress = true;
     });

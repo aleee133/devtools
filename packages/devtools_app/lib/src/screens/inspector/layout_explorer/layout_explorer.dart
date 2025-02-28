@@ -1,24 +1,23 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../../shared/diagnostics/diagnostics_node.dart';
-import '../../../shared/primitives/auto_dispose.dart';
 import '../inspector_controller.dart';
 import '../layout_explorer/box/box.dart';
 import '../layout_explorer/flex/flex.dart';
 
 /// Tab that acts as a proxy to decide which widget to be displayed
 class LayoutExplorerTab extends StatefulWidget {
-  const LayoutExplorerTab({Key? key, required this.controller})
-      : super(key: key);
+  const LayoutExplorerTab({super.key, required this.controller});
 
   final InspectorController controller;
 
   @override
-  _LayoutExplorerTabState createState() => _LayoutExplorerTabState();
+  State<LayoutExplorerTab> createState() => _LayoutExplorerTabState();
 }
 
 class _LayoutExplorerTabState extends State<LayoutExplorerTab>

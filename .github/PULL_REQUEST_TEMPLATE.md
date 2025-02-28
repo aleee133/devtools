@@ -1,9 +1,8 @@
 *Replace this paragraph with a description of what this PR is changing or adding, and why. Consider including before/after screenshots.*
 
-*List which issues are fixed by this PR. You must list at least one issue.*
+*List which issues are fixed by this PR.*
 
-<!-- Uncomment and modify the following section if your PR does not require changes to the release notes -->
-<!-- RELEASE_NOTE_EXCEPTION=[REASON GOES HERE] -->
+*Please add a note to `packages/devtools_app/release_notes/NEXT_RELEASE_NOTES.md` if your change requires release notes. Otherwise, add the 'release-notes-not-required' label to the PR.*
 
 ## Pre-launch Checklist
 
@@ -22,8 +21,8 @@ If you need help, consider asking for help on [Discord].
 
 <!-- Links -->
 [Contributor Guide]: https://github.com/flutter/devtools/blob/master/CONTRIBUTING.md
-[Tree Hygiene]: https://github.com/flutter/flutter/wiki/Tree-hygiene
-[Flutter Style Guide]: https://github.com/flutter/flutter/wiki/Style-guide-for-Flutter-repo
+[Tree Hygiene]: https://github.com/flutter/flutter/blob/master/docs/contributing/Tree-hygiene.md
+[Flutter Style Guide]: https://github.com/flutter/flutter/blob/master/docs/contributing/Style-guide-for-Flutter-repo.md
 [CLA]: https://cla.developers.google.com/
-[Discord]: https://github.com/flutter/flutter/wiki/Chat
+[Discord]: https://github.com/flutter/flutter/blob/master/docs/contributing/Chat.md
 [build.yaml badge]: https://github.com/flutter/devtools/actions/workflows/build.yaml/badge.svg

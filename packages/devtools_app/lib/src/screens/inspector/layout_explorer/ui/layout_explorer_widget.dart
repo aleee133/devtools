@@ -1,9 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 
+import 'package:devtools_app_shared/ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
 
@@ -11,7 +12,6 @@ import '../../../../shared/diagnostics/diagnostics_node.dart';
 import '../../../../shared/diagnostics/inspector_service.dart';
 import '../../../../shared/globals.dart';
 import '../../../../shared/primitives/utils.dart';
-import '../../../../shared/theme.dart';
 import '../../inspector_controller.dart';
 import '../../inspector_data_models.dart';
 import 'utils.dart';
@@ -20,17 +20,17 @@ const maxRequestsPerSecond = 3.0;
 
 /// Base class for layout widgets for all widget types.
 abstract class LayoutExplorerWidget extends StatefulWidget {
-  const LayoutExplorerWidget(
-    this.inspectorController, {
-    Key? key,
-  }) : super(key: key);
+  const LayoutExplorerWidget(this.inspectorController, {super.key});
 
   final InspectorController inspectorController;
 }
 
 /// Base class for state objects for layout widgets for all widget types.
-abstract class LayoutExplorerWidgetState<W extends LayoutExplorerWidget,
-        L extends LayoutProperties> extends State<W>
+abstract class LayoutExplorerWidgetState<
+  W extends LayoutExplorerWidget,
+  L extends LayoutProperties
+>
+    extends State<W>
     with TickerProviderStateMixin
     implements InspectorServiceClient {
   LayoutExplorerWidgetState() {
@@ -61,7 +61,7 @@ abstract class LayoutExplorerWidgetState<W extends LayoutExplorerWidget,
   InspectorController get inspectorController => widget.inspectorController;
 
   InspectorService? get inspectorService =>
-      serviceManager.inspectorService as InspectorService?;
+      serviceConnection.inspectorService as InspectorService?;
 
   late RateLimiter rateLimiter;
 
@@ -78,9 +78,7 @@ abstract class LayoutExplorerWidgetState<W extends LayoutExplorerWidget,
     if (shouldFetch) {
       _dirty = false;
       final newSelection = await fetchLayoutProperties();
-      if (newSelection != null) {
-        _setProperties(newSelection);
-      }
+      _setProperties(newSelection);
     } else {
       updateHighlighted(_properties);
     }
@@ -107,7 +105,7 @@ abstract class LayoutExplorerWidgetState<W extends LayoutExplorerWidget,
     final node = await nextObjectGroup.getLayoutExplorerNode(
       getRoot(selectedNode),
     );
-    if (node == null) return null;
+    if (node == null || node.renderObject == null) return null;
 
     if (!nextObjectGroup.disposed) {
       assert(manager.next == nextObjectGroup);
@@ -122,7 +120,7 @@ abstract class LayoutExplorerWidgetState<W extends LayoutExplorerWidget,
 
   void updateHighlighted(L? newProperties);
 
-  String? id(RemoteDiagnosticsNode? node) => node?.dartDiagnosticRef.id;
+  String? id(RemoteDiagnosticsNode? node) => node?.valueRef.id;
 
   void _registerInspectorControllerService() {
     inspectorController.selectedNode.addListener(_onSelectionChangedCallback);
@@ -130,8 +128,9 @@ abstract class LayoutExplorerWidgetState<W extends LayoutExplorerWidget,
   }
 
   void _unregisterInspectorControllerService() {
-    inspectorController.selectedNode
-        .removeListener(_onSelectionChangedCallback);
+    inspectorController.selectedNode.removeListener(
+      _onSelectionChangedCallback,
+    );
     inspectorService?.removeClient(this);
   }
 
@@ -181,8 +180,8 @@ abstract class LayoutExplorerWidgetState<W extends LayoutExplorerWidget,
   // this is required so that we don't change focus
   //   when tapping on a child is also Flex-based widget.
   Future<void> setSelectionInspector(RemoteDiagnosticsNode node) async {
-    final service = node.inspectorService;
-    if (service is ObjectGroup) {
+    final service = node.objectGroupApi;
+    if (service != null && service is ObjectGroup) {
       await service.setSelectionInspector(node.valueRef, false);
     }
   }
@@ -219,7 +218,7 @@ abstract class LayoutExplorerWidgetState<W extends LayoutExplorerWidget,
     });
   }
 
-  void _setProperties(L newProperties) {
+  void _setProperties(L? newProperties) {
     if (!mounted) return;
     updateHighlighted(newProperties);
     if (_properties == newProperties) {
@@ -233,9 +232,8 @@ abstract class LayoutExplorerWidgetState<W extends LayoutExplorerWidget,
   }
 
   void _initAnimationStates() {
-    entranceController = longAnimationController(
-      this,
-    )..addStatusListener((status) {
+    entranceController = longAnimationController(this)
+      ..addStatusListener((status) {
         if (status == AnimationStatus.dismissed) {
           setState(() {
             _previousProperties = null;
@@ -258,7 +256,7 @@ abstract class LayoutExplorerWidgetState<W extends LayoutExplorerWidget,
   }
 
   void _updateObjectGroupManager() {
-    final service = serviceManager.inspectorService;
+    final service = serviceConnection.inspectorService;
     if (service != objectGroupManager?.inspectorService) {
       objectGroupManager = InspectorObjectGroupManager(
         service as InspectorService,

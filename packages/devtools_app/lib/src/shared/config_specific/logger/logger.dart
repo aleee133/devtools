@@ -1,13 +1,7 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
-export 'logger_default.dart'
-    if (dart.library.html) 'logger_html.dart'
-    if (dart.library.io) 'logger_io.dart';
+export '_logger_io.dart' if (dart.library.js_interop) '_logger_web.dart';
 
-enum LogLevel {
-  debug,
-  warning,
-  error,
-}
+enum LogLevel { debug, warning, error }

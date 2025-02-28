@@ -1,3 +1,6 @@
+# Copyright 2025 The Flutter Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 include: ../../analysis_options.yaml
 
 analyzer:
@@ -10,10 +13,6 @@ analyzer:
     # these files if you want to ensure code is not invalid except where
     # expected.
     - test/test_infra/test_data/syntax_highlighting/**
-
-linter:
-  rules:
-    - avoid_print
 
 dart_code_metrics:
   metrics-exclude:

@@ -1,6 +1,6 @@
-// Copyright 2023 The Chromium Authors. All rights reserved.
+// Copyright 2023 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 
@@ -21,13 +21,13 @@ Future<Object?> getObject({
   // subranges of the following instance kinds:
   // https://api.flutter.dev/flutter/vm_service/VmServiceInterface/getObject.html
   if (variable == null || !variable.isPartialObject) {
-    return await serviceManager.service!.getObject(
+    return await serviceConnection.serviceManager.service!.getObject(
       isolateRef!.id!,
       value.id!,
     );
   }
 
-  return await serviceManager.service!.getObject(
+  return await serviceConnection.serviceManager.service!.getObject(
     isolateRef!.id!,
     value.id!,
     offset: variable.offset,

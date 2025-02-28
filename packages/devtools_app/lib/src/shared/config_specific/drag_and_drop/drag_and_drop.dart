@@ -1,25 +1,28 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import '../../primitives/utils.dart';
-import '_drag_and_drop_stub.dart'
-    if (dart.library.html) '_drag_and_drop_web.dart'
-    if (dart.library.io) '_drag_and_drop_desktop.dart';
+import '_drag_and_drop_desktop.dart'
+    if (dart.library.js_interop) '_drag_and_drop_web.dart';
 
 abstract class DragAndDropManager {
-  factory DragAndDropManager() => createDragAndDropManager();
+  factory DragAndDropManager(int viewId) => createDragAndDropManager(viewId);
 
-  DragAndDropManager.impl() {
+  DragAndDropManager.impl(int viewId) : _viewId = viewId {
     init();
   }
 
-  static DragAndDropManager get instance => _instance;
+  static DragAndDropManager getInstance(int viewId) {
+    return _instances.putIfAbsent(viewId, () => DragAndDropManager(viewId));
+  }
 
-  static late final DragAndDropManager _instance = DragAndDropManager();
+  static final _instances = <int, DragAndDropManager>{};
+  int get viewId => _viewId;
+  final int _viewId;
 
   final _dragAndDropStates = <DragAndDropState>{};
 
@@ -62,7 +65,11 @@ abstract class DragAndDropManager {
   /// newly active [DragAndDrop] widgets accordingly.
   void hitTestAndUpdateActiveId(double x, double y) {
     final hitTestResult = HitTestResult();
-    RendererBinding.instance.hitTest(hitTestResult, Offset(x, y));
+    RendererBinding.instance.hitTestInView(
+      hitTestResult,
+      Offset(x, y),
+      _viewId,
+    );
 
     // Starting at bottom of [hitTestResult.path], look for the first
     // [DragAndDrop] widget. This widget will be marked by a [RenderMetaData]
@@ -90,10 +97,7 @@ abstract class DragAndDropManager {
 }
 
 class DragAndDrop extends StatefulWidget {
-  const DragAndDrop({
-    required this.child,
-    this.handleDrop,
-  });
+  const DragAndDrop({super.key, required this.child, this.handleDrop});
 
   /// Callback to handle parsed data from drag and drop.
   ///
@@ -108,37 +112,57 @@ class DragAndDrop extends StatefulWidget {
 
 class DragAndDropState extends State<DragAndDrop> {
   final _dragging = ValueNotifier<bool>(false);
+  DragAndDropManager? _dragAndDropManager;
 
   bool _isActive = false;
+
+  void _refreshDragAndDropManager(int viewId) {
+    if (_dragAndDropManager != null) {
+      final oldViewId = _dragAndDropManager!.viewId;
+
+      // Already registered to the right drag and drop manager, so do nothing.
+      if (oldViewId == viewId) return;
+
+      _dragAndDropManager?.unregisterDragAndDrop(this);
+      _dragAndDropManager = null;
+    }
+
+    _dragAndDropManager = DragAndDropManager.getInstance(viewId);
+    _dragAndDropManager!.registerDragAndDrop(this);
+  }
 
   @override
   void initState() {
     super.initState();
-    DragAndDropManager.instance.registerDragAndDrop(this);
   }
 
   @override
   void dispose() {
-    DragAndDropManager.instance.unregisterDragAndDrop(this);
+    _dragAndDropManager?.unregisterDragAndDrop(this);
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    // Each time the widget is rebuilt it may be in a a new view. So the
+    // dragAndDropManager is refreshed to ensure that we are registered in the
+    // right context.
+    _refreshDragAndDropManager(View.of(context).viewId);
     return MetaData(
       metaData: DragAndDropMetaData(state: this),
-      child: widget.handleDrop != null
-          ? ValueListenableBuilder<bool>(
-              valueListenable: _dragging,
-              builder: (context, dragging, _) {
-                // TODO(kenz): use AnimatedOpacity instead.
-                return Opacity(
-                  opacity: dragging ? 0.5 : 1.0,
-                  child: widget.child,
-                );
-              },
-            )
-          : widget.child,
+      child:
+          widget.handleDrop != null
+              ? ValueListenableBuilder<bool>(
+                valueListenable: _dragging,
+                builder: (context, dragging, _) {
+                  // TODO(kenz): use AnimatedOpacity instead.
+                  return Opacity(
+                    opacity: dragging ? 0.5 : 1.0,
+                    child: widget.child,
+                  );
+                },
+              )
+              : widget.child,
     );
   }
 

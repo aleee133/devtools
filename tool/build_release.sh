@@ -1,8 +1,11 @@
 #!/bin/bash
 
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# TODO(kenz): delete this script once we can confirm it is not used in the
+# Dart SDK or in infra tooling.
+
+# Copyright 2025 The Flutter Authors
 # Use of this source code is governed by a BSD-style license that can be
-# found in the LICENSE file.
+# found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 # Contains a path to this script, relative to the directory it was called from.
 RELATIVE_PATH_TO_SCRIPT="${BASH_SOURCE[0]}"
@@ -18,28 +21,53 @@ pushd $TOOL_DIR
 if [[ $1 = "--no-update-flutter" ]]
 then
   # Use the Flutter SDK that is already on the user's PATH.
-  FLUTTER_EXE=`which flutter`
+  FLUTTER_EXE="$(which flutter)"
   echo "Using the Flutter SDK that is already on PATH: $FLUTTER_EXE"
+  FLUTTER_DIR="$(dirname "$(dirname "$FLUTTER_EXE")")"
 else
   # Use the Flutter SDK from flutter-sdk/.
   FLUTTER_DIR="`pwd`/flutter-sdk"
   PATH="$FLUTTER_DIR/bin":$PATH
 
   # Make sure the flutter sdk is on the correct branch.
-  ./update_flutter_sdk.sh
+  dt update-flutter-sdk
 fi
 
 popd
 
 # echo on
-set -ex
+set -eux
+
+# TODO(fujino): delete once https://github.com/flutter/flutter/issues/142521
+# is resolved.
+pushd "$FLUTTER_DIR"
+  # If we've already written the wrong version number to disk, delete it
+  rm -f bin/cache/flutter.version.json
+  # The flutter tool relies on git tags to determine its version
+  git fetch https://github.com/flutter/flutter.git --tags -f
+  git describe --tags
+  # Print out local tags for debugging
+  git tag -l
+popd
 
 echo "Flutter Path: $(which flutter)"
 echo "Flutter Version: $(flutter --version)"
 
+# TODO(https://github.com/flutter/flutter/issues/154194): remove this.
+echo "Running flutter --help as a workaround for https://github.com/flutter/flutter/issues/154194"
+flutter --help
+
 if [[ $1 = "--update-perfetto" ]]; then
-  $TOOL_DIR/update_perfetto.sh
+  dt update-perfetto
 fi
+
+pushd $DEVTOOLS_DIR/packages/devtools_shared
+flutter pub get
+popd
+
+pushd $DEVTOOLS_DIR/packages/devtools_extensions
+flutter pub get
+popd
 
 pushd $DEVTOOLS_DIR/packages/devtools_app
 
@@ -48,12 +76,9 @@ rm -rf build/web
 
 flutter pub get
 
-# Build a profile build rather than a release build to avoid minification
-# as code size doesn't matter very much for us as minification makes some
-# crashes harder to debug. For example, https://github.com/flutter/devtools/issues/2125
-
 flutter build web \
-  --web-renderer canvaskit \
+  --source-maps \
+  --wasm \
   --pwa-strategy=offline-first \
   --release \
   --no-tree-shake-icons

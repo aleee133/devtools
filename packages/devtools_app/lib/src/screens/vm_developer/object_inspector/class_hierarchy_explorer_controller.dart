@@ -1,15 +1,16 @@
-// Copyright 2023 The Chromium Authors. All rights reserved.
+// Copyright 2023 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'package:collection/collection.dart';
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/foundation.dart';
 import 'package:vm_service/vm_service.dart';
 
 import '../../../shared/globals.dart';
 import '../../../shared/primitives/trees.dart';
 
-class ClassHierarchyExplorerController {
+class ClassHierarchyExplorerController extends DisposableController {
   ValueListenable<List<ClassHierarchyNode>> get selectedIsolateClassHierarchy =>
       _selectedIsolateClassHierarchy;
   final _selectedIsolateClassHierarchy =
@@ -17,18 +18,20 @@ class ClassHierarchyExplorerController {
 
   Future<void> refresh() async {
     _selectedIsolateClassHierarchy.value = <ClassHierarchyNode>[];
-    final service = serviceManager.service!;
-    final isolate = serviceManager.isolateManager.selectedIsolate.value;
+    final service = serviceConnection.serviceManager.service!;
+    final isolate =
+        serviceConnection.serviceManager.isolateManager.selectedIsolate.value;
     if (isolate == null) {
       return;
     }
     final isolateId = isolate.id!;
     final classList = await service.getClassList(isolateId);
     // TODO(bkonyi): we should cache the class list like we do the script list
-    final classes = await Future.wait([
-      for (final cls in classList.classes!)
-        service.getObject(isolateId, cls.id!).then((e) => e as Class),
-    ]);
+    final classes =
+        await [
+          for (final cls in classList.classes!)
+            service.getObject(isolateId, cls.id!).then((e) => e as Class),
+        ].wait;
 
     buildHierarchy(classes);
   }
@@ -36,10 +39,7 @@ class ClassHierarchyExplorerController {
   @visibleForTesting
   void buildHierarchy(List<Class> classes) {
     final nodes = <String?, ClassHierarchyNode>{
-      for (final cls in classes)
-        cls.id: ClassHierarchyNode(
-          cls: cls,
-        ),
+      for (final cls in classes) cls.id: ClassHierarchyNode(cls: cls),
     };
 
     late final ClassHierarchyNode objectNode;
@@ -60,6 +60,12 @@ class ClassHierarchyExplorerController {
     );
 
     _selectedIsolateClassHierarchy.value = [objectNode];
+  }
+
+  @override
+  void dispose() {
+    _selectedIsolateClassHierarchy.dispose();
+    super.dispose();
   }
 }
 

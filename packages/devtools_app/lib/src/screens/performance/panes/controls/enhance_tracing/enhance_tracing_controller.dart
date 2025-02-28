@@ -1,14 +1,14 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 
+import 'package:devtools_app_shared/utils.dart';
 import 'package:vm_service/vm_service.dart';
 
 import '../../../../../service/service_extensions.dart' as extensions;
 import '../../../../../shared/globals.dart';
-import '../../../../../shared/primitives/auto_dispose.dart';
 import '../../flutter_frames/flutter_frame_model.dart';
 import 'enhance_tracing_model.dart';
 
@@ -17,6 +17,7 @@ final enhanceTracingExtensions = [
   extensions.profileUserWidgetBuilds,
   extensions.profileRenderObjectLayouts,
   extensions.profileRenderObjectPaints,
+  extensions.profilePlatformChannels,
 ];
 
 class EnhanceTracingController extends DisposableController
@@ -25,12 +26,9 @@ class EnhanceTracingController extends DisposableController
 
   late EnhanceTracingState tracingState;
 
-  final _extensionStates =
-      Map<extensions.ToggleableServiceExtensionDescription, bool>.fromIterable(
-    enhanceTracingExtensions,
-    key: (ext) => ext,
-    value: (_) => false,
-  );
+  final _extensionStates = {
+    for (var ext in enhanceTracingExtensions) ext: false,
+  };
 
   /// The id of the first 'Flutter.Frame' event that occurs after the DevTools
   /// performance page is opened.
@@ -55,25 +53,26 @@ class EnhanceTracingController extends DisposableController
   /// This method assigns [_firstLiveFrameId] when the first 'Flutter.Frame'
   /// event is received, and then cancels the stream subscription.
   void _listenForFirstLiveFrame() {
-    _firstFrameEventSubscription =
-        serviceManager.service!.onExtensionEvent.listen(
-      (event) {
-        if (event.extensionKind == 'Flutter.Frame' &&
-            _firstLiveFrameId == null) {
-          _firstLiveFrameId = FlutterFrame.parse(event.extensionData!.data).id;
-          // See https://github.com/dart-lang/linter/issues/3801
-          // ignore: discarded_futures
-          unawaited(_firstFrameEventSubscription!.cancel());
-          _firstFrameEventSubscription = null;
-        }
-      },
-    );
+    _firstFrameEventSubscription = serviceConnection
+        .serviceManager
+        .service!
+        .onExtensionEvent
+        .listen((event) {
+          if (event.extensionKind == 'Flutter.Frame' &&
+              _firstLiveFrameId == null) {
+            _firstLiveFrameId =
+                FlutterFrame.fromJson(event.extensionData!.data).id;
+            unawaited(_firstFrameEventSubscription!.cancel());
+            _firstFrameEventSubscription = null;
+          }
+        });
   }
 
+  @override
   void init() {
     for (int i = 0; i < enhanceTracingExtensions.length; i++) {
       final extension = enhanceTracingExtensions[i];
-      final state = serviceManager.serviceExtensionManager
+      final state = serviceConnection.serviceManager.serviceExtensionManager
           .getServiceExtensionState(extension.extension);
       _extensionStates[extension] = state.value.enabled;
       // Listen for extension state changes so that we can update the value of
@@ -93,7 +92,8 @@ class EnhanceTracingController extends DisposableController
   }
 
   void _updateTracingState() {
-    final builds = _extensionStates[extensions.profileWidgetBuilds]! ||
+    final builds =
+        _extensionStates[extensions.profileWidgetBuilds]! ||
         _extensionStates[extensions.profileUserWidgetBuilds]!;
     final layouts = _extensionStates[extensions.profileRenderObjectLayouts]!;
     final paints = _extensionStates[extensions.profileRenderObjectPaints]!;
@@ -119,8 +119,6 @@ class EnhanceTracingController extends DisposableController
   @override
   void dispose() {
     unawaited(showMenuStreamController.close());
-    // See https://github.com/dart-lang/linter/issues/3801
-    // ignore: discarded_futures
     unawaited(_firstFrameEventSubscription?.cancel());
     super.dispose();
   }

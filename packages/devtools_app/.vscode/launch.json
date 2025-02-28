@@ -41,24 +41,31 @@
             "name": "memory/default",
             "request": "launch",
             "type": "dart",
-            "program": "test/test_infra/scenes/memory/default.stager_app.dart",
+            "program": "test/test_infra/scenes/memory/default.stager_app.g.dart",
         },
         {
             "name": "memory/diff_snapshot",
             "request": "launch",
             "type": "dart",
-            "program": "test/test_infra/scenes/memory/diff_snapshot.stager_app.dart",
+            "program": "test/test_infra/scenes/memory/diff_snapshot.stager_app.g.dart",
         },
         {
             "name": "performance/default",
             "request": "launch",
             "type": "dart",
-            "program": "test/test_infra/scenes/performance/default.stager_app.dart",
+            "program": "test/test_infra/scenes/performance/default.stager_app.g.dart",
         },
         {
             "name": "attach",
             "type": "dart",
             "request": "attach",
         },
+        {
+            "name": "standalone_ui/property_editor_sidebar",
+            "request": "launch",
+            "type": "dart",
+            "program": "test/test_infra/scenes/standalone_ui/property_editor_sidebar.stager_app.g.dart",
+        },
+        
     ]
 }

@@ -1,6 +1,8 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
+
+// ignore_for_file: avoid_print
 
 import 'dart:async';
 import 'dart:io';
@@ -11,7 +13,7 @@ import 'package:webkit_inspection_protocol/webkit_inspection_protocol.dart'
 import 'package:webkit_inspection_protocol/webkit_inspection_protocol.dart'
     as wip show ChromeTab;
 
-import 'utils_io.dart';
+import 'io_utils.dart';
 
 // Change this if you want to be able to see Chrome opening while tests run
 // to aid debugging.
@@ -32,22 +34,22 @@ class Chrome {
 
   static Chrome? locate() {
     if (Platform.isMacOS) {
-      const String defaultPath = '/Applications/Google Chrome.app';
-      const String bundlePath = 'Contents/MacOS/Google Chrome';
+      const defaultPath = '/Applications/Google Chrome.app';
+      const bundlePath = 'Contents/MacOS/Google Chrome';
 
       if (FileSystemEntity.isDirectorySync(defaultPath)) {
         return Chrome.from(path.join(defaultPath, bundlePath));
       }
     } else if (Platform.isLinux) {
-      const String defaultPath = '/usr/bin/google-chrome';
+      const defaultPath = '/usr/bin/google-chrome';
 
       if (FileSystemEntity.isFileSync(defaultPath)) {
         return Chrome.from(defaultPath);
       }
     } else if (Platform.isWindows) {
-      final String progFiles = Platform.environment['PROGRAMFILES(X86)']!;
-      final String chromeInstall = '$progFiles\\Google\\Chrome';
-      final String defaultPath = '$chromeInstall\\Application\\chrome.exe';
+      final progFiles = Platform.environment['PROGRAMFILES(X86)']!;
+      final chromeInstall = '$progFiles\\Google\\Chrome';
+      final defaultPath = '$chromeInstall\\Application\\chrome.exe';
 
       if (FileSystemEntity.isFileSync(defaultPath)) {
         return Chrome.from(defaultPath);
@@ -69,9 +71,8 @@ class Chrome {
   ///
   /// This method will create the directory if it does not exist.
   static String getCreateChromeDataDir() {
-    final Directory prefsDir = getDartPrefsDirectory();
-    final Directory chromeDataDir =
-        Directory(path.join(prefsDir.path, 'chrome'));
+    final prefsDir = getDartPrefsDirectory();
+    final chromeDataDir = Directory(path.join(prefsDir.path, 'chrome'));
     if (!chromeDataDir.existsSync()) {
       chromeDataDir.createSync(recursive: true);
     }
@@ -81,11 +82,11 @@ class Chrome {
   final String executable;
 
   Future<ChromeProcess> start({String? url, int debugPort = 9222}) {
-    final List<String> args = <String>[
+    final args = <String>[
       '--no-default-browser-check',
       '--no-first-run',
       '--user-data-dir=${getCreateChromeDataDir()}',
-      '--remote-debugging-port=$debugPort'
+      '--remote-debugging-port=$debugPort',
     ];
     if (useChromeHeadless && headlessModeIsSupported) {
       args.addAll(<String>[
@@ -147,7 +148,7 @@ class ChromeProcess {
     required bool Function(wip.ChromeTab) tabFound,
     required Duration timeout,
   }) async {
-    final wip.ChromeTab? wipTab = await connection.getTab(
+    final wipTab = await connection.getTab(
       (wip.ChromeTab tab) {
         return tabFound(tab);
       },
@@ -179,18 +180,17 @@ class ChromeTab {
   final wip.ChromeTab wipTab;
   WipConnection? _wip;
 
-  final StreamController<LogEntry> _entryAddedController =
-      StreamController<LogEntry>.broadcast();
-  final StreamController<ConsoleAPIEvent> _consoleAPICalledController =
+  final _entryAddedController = StreamController<LogEntry>.broadcast();
+  final _consoleAPICalledController =
       StreamController<ConsoleAPIEvent>.broadcast();
-  final StreamController<ExceptionThrownEvent> _exceptionThrownController =
+  final _exceptionThrownController =
       StreamController<ExceptionThrownEvent>.broadcast();
 
   num? _lostConnectionTime;
 
   Future<WipConnection?> connect({bool verbose = false}) async {
     _wip = await wipTab.connect();
-    final WipConnection wipConnection = _wip!;
+    final wipConnection = _wip!;
 
     await wipConnection.log.enable();
     wipConnection.log.onEntryAdded.listen((LogEntry entry) {
@@ -264,7 +264,7 @@ class ChromeTab {
 
   Future<WipResponse> reload() => _wip!.page.reload();
 
-  Future<dynamic> navigate(String url) => _wip!.page.navigate(url);
+  Future<WipResponse> navigate(String url) => _wip!.page.navigate(url);
 
   WipConnection? get wipConnection => _wip;
 }

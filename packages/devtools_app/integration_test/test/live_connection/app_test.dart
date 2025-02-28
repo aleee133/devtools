@@ -1,10 +1,10 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'package:devtools_app/devtools_app.dart';
-import 'package:devtools_test/devtools_integration_test.dart';
-import 'package:flutter/material.dart';
+import 'package:devtools_test/helpers.dart';
+import 'package:devtools_test/integration_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
@@ -28,25 +28,11 @@ void main() {
   testWidgets('connect to app and switch tabs', (tester) async {
     await pumpAndConnectDevTools(tester, testApp);
 
-    logStatus('verify that we can load each DevTools screen');
-    final availableScreenIds = <String>[];
-    for (final screen in devtoolsScreens!) {
-      if (shouldShowScreen(screen.screen)) {
-        availableScreenIds.add(screen.screen.screenId);
-      }
-    }
-    final tabs = tester.widgetList<Tab>(
-      find.descendant(
-        of: find.byType(AppBar),
-        matching: find.byType(Tab),
-      ),
-    );
-    expect(tabs.length, equals(availableScreenIds.length));
+    // For the sake of this test, do not show extension screens by default.
+    preferences.devToolsExtensions.showOnlyEnabledExtensions.value = true;
+    await tester.pumpAndSettle(shortPumpDuration);
 
-    final screens = (ScreenMetaData.values.toList()
-      ..removeWhere((data) => !availableScreenIds.contains(data.id)));
-    for (final screen in screens) {
-      await switchToScreen(tester, screen);
-    }
+    logStatus('verify that we can load each DevTools screen');
+    await navigateThroughDevToolsScreens(tester, connectedToApp: true);
   });
 }

@@ -1,37 +1,24 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
-import 'dart:async';
-
+import 'package:devtools_app_shared/ui.dart';
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
-import '../../service/service_extension_widgets.dart';
 import '../../shared/analytics/analytics.dart' as ga;
 import '../../shared/analytics/constants.dart' as gac;
-import '../../shared/common_widgets.dart';
-import '../../shared/primitives/auto_dispose.dart';
-import '../../shared/primitives/simple_items.dart';
-import '../../shared/screen.dart';
-import '../../shared/split.dart';
-import '../../shared/theme.dart';
-import '../../shared/ui/filter.dart';
-import '../../shared/ui/icons.dart';
-import '../../shared/ui/search.dart';
-import '../../shared/utils.dart';
+import '../../shared/framework/screen.dart';
+import '../../shared/globals.dart';
+import '../../shared/ui/utils.dart';
 import '_log_details.dart';
 import '_logs_table.dart';
 import 'logging_controller.dart';
+import 'logging_controls.dart';
 
 /// Presents logs from the connected app.
 class LoggingScreen extends Screen {
-  LoggingScreen()
-      : super(
-          id,
-          title: ScreenMetaData.logging.title,
-          icon: Octicons.clippy,
-        );
+  LoggingScreen() : super.fromMetaData(ScreenMetaData.logging);
 
   static final id = ScreenMetaData.logging.id;
 
@@ -39,13 +26,11 @@ class LoggingScreen extends Screen {
   String get docPageId => screenId;
 
   @override
-  Widget build(BuildContext context) => const LoggingScreenBody();
+  Widget buildScreenBody(BuildContext context) => const LoggingScreenBody();
 
   @override
   Widget buildStatus(BuildContext context) {
-    final LoggingController controller =
-        Provider.of<LoggingController>(context);
-
+    final controller = screenControllers.lookup<LoggingController>();
     return StreamBuilder<String>(
       initialData: controller.statusText,
       stream: controller.onLogStatusChanged,
@@ -57,130 +42,69 @@ class LoggingScreen extends Screen {
 }
 
 class LoggingScreenBody extends StatefulWidget {
-  const LoggingScreenBody();
-
-  static const filterQueryInstructions = '''
-Type a filter query to show or hide specific logs.
-
-Any text that is not paired with an available filter key below will be queried against all categories (kind, message).
-
-Available filters:
-    'kind', 'k'       (e.g. 'k:flutter.frame', '-k:gc,stdout')
-
-Example queries:
-    'my log message k:stdout,stdin'
-    'flutter -k:gc'
-''';
+  const LoggingScreenBody({super.key});
 
   @override
-  _LoggingScreenState createState() => _LoggingScreenState();
+  State<LoggingScreenBody> createState() => _LoggingScreenState();
 }
 
 class _LoggingScreenState extends State<LoggingScreenBody>
-    with
-        AutoDisposeMixin,
-        ProvidedControllerMixin<LoggingController, LoggingScreenBody> {
-  late List<LogData> filteredLogs;
+    with AutoDisposeMixin {
+  late LoggingController controller;
 
   @override
   void initState() {
     super.initState();
     ga.screen(gac.logging);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!initController()) return;
-
-    cancelListeners();
-
-    filteredLogs = controller.filteredData.value;
-    addAutoDisposeListener(controller.filteredData, () {
-      setState(() {
-        filteredLogs = controller.filteredData.value;
-      });
-    });
+    controller = screenControllers.lookup<LoggingController>();
+    addAutoDisposeListener(controller.filteredData);
   }
 
   @override
   Widget build(BuildContext context) {
+    final splitAxis = _splitAxisFor(context);
     return Column(
       children: [
-        _buildLoggingControls(),
+        const LoggingControls(),
         const SizedBox(height: intermediateSpacing),
         Expanded(
-          child: _buildLoggingBody(),
-        ),
-      ],
-    );
-  }
-
-  // TODO(kenz): replace with helper widget
-  Widget _buildLoggingControls() {
-    final hasData = controller.filteredData.value.isNotEmpty;
-    return Row(
-      children: [
-        ClearButton(
-          onPressed: controller.clear,
-          gaScreen: gac.logging,
-          gaSelection: gac.clear,
-        ),
-        const Spacer(),
-        StructuredErrorsToggle(),
-        const SizedBox(width: denseSpacing),
-        // TODO(kenz): fix focus issue when state is refreshed
-        SearchField<LoggingController>(
-          searchFieldWidth: wideSearchFieldWidth,
-          searchController: controller,
-          searchFieldEnabled: hasData,
-        ),
-        const SizedBox(width: denseSpacing),
-        FilterButton(
-          onPressed: _showFilterDialog,
-          isFilterActive: controller.isFilterActive,
-        ),
-      ],
-    );
-  }
-
-  // TODO(kenz): replace with helper widget.
-  Widget _buildLoggingBody() {
-    return Split(
-      axis: Axis.vertical,
-      initialFractions: const [0.72, 0.28],
-      // TODO(kenz): refactor so that the LogDetails header can be the splitter.
-      // This would be more consistent with other screens that use the console
-      // header as the splitter.
-      children: [
-        RoundedOutlinedBorder(
-          clip: true,
-          child: LogsTable(
-            data: filteredLogs,
-            selectionNotifier: controller.selectedLog,
-            searchMatchesNotifier: controller.searchMatches,
-            activeSearchMatchNotifier: controller.activeSearchMatch,
+          child: SplitPane(
+            axis: splitAxis,
+            initialFractions:
+                splitAxis == Axis.vertical
+                    ? const [0.8, 0.2]
+                    : const [0.7, 0.3],
+            children: [
+              RoundedOutlinedBorder(
+                clip: true,
+                child: LogsTable(
+                  controller: controller,
+                  data: controller.filteredData.value,
+                  selectionNotifier: controller.selectedLog,
+                  searchMatchesNotifier: controller.searchMatches,
+                  activeSearchMatchNotifier: controller.activeSearchMatch,
+                ),
+              ),
+              ValueListenableBuilder<LogData?>(
+                valueListenable: controller.selectedLog,
+                builder: (context, selected, _) {
+                  return LogDetails(log: selected);
+                },
+              ),
+            ],
           ),
         ),
-        ValueListenableBuilder<LogData?>(
-          valueListenable: controller.selectedLog,
-          builder: (context, selected, _) {
-            return LogDetails(log: selected);
-          },
-        ),
       ],
     );
   }
 
-  void _showFilterDialog() {
-    unawaited(
-      showDialog(
-        context: context,
-        builder: (context) => FilterDialog<LogData>(
-          controller: controller,
-          queryInstructions: LoggingScreenBody.filterQueryInstructions,
-        ),
-      ),
-    );
+  Axis _splitAxisFor(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final aspectRatio = screenSize.width / screenSize.height;
+    if (screenSize.height <= MediaSize.s.heightThreshold ||
+        aspectRatio >= 1.2) {
+      return Axis.horizontal;
+    }
+    return Axis.vertical;
   }
 }

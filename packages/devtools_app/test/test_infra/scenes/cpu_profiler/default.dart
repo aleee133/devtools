@@ -1,11 +1,14 @@
-// Copyright 2023 The Chromium Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be found
-// in the LICENSE file.
+// Copyright 2023 The Flutter Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 
 import 'package:devtools_app/devtools_app.dart';
+import 'package:devtools_app_shared/ui.dart';
+import 'package:devtools_app_shared/utils.dart';
 import 'package:devtools_test/devtools_test.dart';
+import 'package:devtools_test/helpers.dart';
 import 'package:flutter/material.dart';
 import 'package:mockito/mockito.dart';
 import 'package:stager/stager.dart';
@@ -14,10 +17,10 @@ import 'package:vm_service/vm_service.dart';
 import '../../test_data/cpu_profiler/cpu_profile.dart';
 
 /// To run:
-/// flutter run -t test/test_infra/scenes/cpu_profiler/default.stager_app.dart -d macos
+/// flutter run -t test/test_infra/scenes/cpu_profiler/default.stager_app.g.dart -d macos
 class CpuProfilerDefaultScene extends Scene {
   late ProfilerScreenController controller;
-  late FakeServiceManager fakeServiceManager;
+  late FakeServiceConnectionManager fakeServiceConnection;
   late ProfilerScreen screen;
 
   @override
@@ -30,38 +33,40 @@ class CpuProfilerDefaultScene extends Scene {
 
   @override
   Future<void> setUp() async {
-    setGlobal(DevToolsExtensionPoints, ExternalDevToolsExtensionPoints());
-    setGlobal(OfflineModeController, OfflineModeController());
+    setGlobal(
+      DevToolsEnvironmentParameters,
+      ExternalDevToolsEnvironmentParameters(),
+    );
+    setGlobal(OfflineDataController, OfflineDataController());
     setGlobal(IdeTheme, IdeTheme());
     setGlobal(NotificationService, NotificationService());
     setGlobal(PreferencesController, PreferencesController());
+    setGlobal(BannerMessagesController, BannerMessagesController());
 
-    fakeServiceManager = FakeServiceManager(
+    fakeServiceConnection = FakeServiceConnectionManager(
       service: FakeServiceManager.createFakeService(
         cpuSamples: CpuSamples.parse(goldenCpuSamplesJson),
       ),
     );
-    final app = fakeServiceManager.connectedApp!;
+    final app = fakeServiceConnection.serviceManager.connectedApp!;
     mockConnectedApp(
       app,
       isFlutterApp: false,
       isProfileBuild: false,
       isWebApp: false,
     );
-    when(fakeServiceManager.errorBadgeManager.errorCountNotifier('profiler'))
-        .thenReturn(ValueNotifier<int>(0));
-    setGlobal(ServiceConnectionManager, fakeServiceManager);
+    when(
+      fakeServiceConnection.errorBadgeManager.errorCountNotifier('profiler'),
+    ).thenReturn(ValueNotifier<int>(0));
+    setGlobal(ServiceConnectionManager, fakeServiceConnection);
 
     final mockScriptManager = MockScriptManager();
-    when(mockScriptManager.scriptRefForUri(any)).thenReturn(
-      ScriptRef(
-        uri: 'package:test/script.dart',
-        id: 'script.dart',
-      ),
-    );
-    when(mockScriptManager.sortedScripts).thenReturn(
-      ValueNotifier<List<ScriptRef>>([]),
-    );
+    when(
+      mockScriptManager.scriptRefForUri(any),
+    ).thenReturn(ScriptRef(uri: 'package:test/script.dart', id: 'script.dart'));
+    when(
+      mockScriptManager.sortedScripts,
+    ).thenReturn(ValueNotifier<List<ScriptRef>>([]));
     setGlobal(ScriptManager, mockScriptManager);
 
     controller = ProfilerScreenController();

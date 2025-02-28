@@ -1,16 +1,16 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:collection/collection.dart';
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../../service/service_manager.dart';
 import '../../../../shared/globals.dart';
-import '../../../../shared/primitives/trace_event.dart';
 import '../../../../shared/primitives/utils.dart';
 import '../../performance_controller.dart';
 import '../../performance_model.dart';
@@ -68,19 +68,19 @@ class FlutterFramesController extends PerformanceFeatureController {
 
   @override
   Future<void> init() async {
-    if (!offlineController.offlineMode.value) {
-      await serviceManager.onServiceAvailable;
-      final connectedApp = serviceManager.connectedApp!;
+    if (!offlineDataController.showingOfflineData.value) {
+      await serviceConnection.serviceManager.onServiceAvailable;
+      final connectedApp = serviceConnection.serviceManager.connectedApp!;
       if (connectedApp.isFlutterAppNow!) {
         // Default to true for profile builds only.
         _badgeTabForJankyFrames.value = await connectedApp.isProfileBuild;
 
-        final refreshRate = connectedApp.isFlutterAppNow!
-            ? await serviceManager.queryDisplayRefreshRate
-            : defaultRefreshRate;
+        final refreshRate =
+            connectedApp.isFlutterAppNow!
+                ? await serviceConnection.queryDisplayRefreshRate
+                : defaultRefreshRate;
 
         _displayRefreshRate.value = refreshRate ?? defaultRefreshRate;
-        data?.displayRefreshRate = _displayRefreshRate.value;
       }
     }
   }
@@ -90,7 +90,8 @@ class FlutterFramesController extends PerformanceFeatureController {
   // feature controllers, which respond to tab switches.
   @override
   Future<void> setIsActiveFeature(bool value) async {
-    final isFlutterApp = serviceManager.connectedApp?.isFlutterAppNow ?? false;
+    final isFlutterApp =
+        serviceConnection.serviceManager.connectedApp?.isFlutterAppNow ?? false;
     final shouldShowFramesChart =
         preferences.performance.showFlutterFramesChart.value;
     value = isFlutterApp && shouldShowFramesChart;
@@ -104,7 +105,6 @@ class FlutterFramesController extends PerformanceFeatureController {
         _addPendingFlutterFrames();
       }
       _maybeBadgeTabForJankyFrame(frame);
-      data!.frames.add(frame);
       _flutterFrames.add(frame);
     } else {
       _pendingFlutterFrames.add(frame);
@@ -121,14 +121,10 @@ class FlutterFramesController extends PerformanceFeatureController {
     }
   }
 
-  void assignEventToFrame(
-    int? frameNumber,
-    SyncTimelineEvent event,
-    TimelineEventType type,
-  ) {
+  void assignEventToFrame(int? frameNumber, FlutterTimelineEvent event) {
     assert(frameNumber != null && hasUnassignedFlutterFrame(frameNumber));
     final frame = _unassignedFlutterFrames[frameNumber]!;
-    frame.setEventFlow(event, type: type);
+    frame.setEventFlow(event);
     if (frame.isWellFormed) {
       _unassignedFlutterFrames.remove(frameNumber);
       _updateFirstWellFormedFrameMicros(frame);
@@ -141,7 +137,6 @@ class FlutterFramesController extends PerformanceFeatureController {
 
   void _addPendingFlutterFrames() {
     _pendingFlutterFrames.forEach(_maybeBadgeTabForJankyFrame);
-    data!.frames.addAll(_pendingFlutterFrames);
     _flutterFrames.addAll(_pendingFlutterFrames);
     _pendingFlutterFrames.clear();
   }
@@ -149,8 +144,9 @@ class FlutterFramesController extends PerformanceFeatureController {
   void _maybeBadgeTabForJankyFrame(FlutterFrame frame) {
     if (_badgeTabForJankyFrames.value) {
       if (frame.isJanky(_displayRefreshRate.value)) {
-        serviceManager.errorBadgeManager
-            .incrementBadgeCount(PerformanceScreen.id);
+        serviceConnection.errorBadgeManager.incrementBadgeCount(
+          PerformanceScreen.id,
+        );
       }
     }
   }
@@ -184,21 +180,14 @@ class FlutterFramesController extends PerformanceFeatureController {
 
   @override
   void handleSelectedFrame(FlutterFrame frame) {
-    if (data == null) {
-      return;
-    }
-    final _data = data!;
-
     currentFrameBeingSelected = frame;
 
     // Unselect [frame] if is already selected.
-    if (_data.selectedFrame == frame) {
-      _data.selectedFrame = null;
+    if (_selectedFrameNotifier.value == frame) {
       _selectedFrameNotifier.value = null;
       return;
     }
 
-    _data.selectedFrame = frame;
     _selectedFrameNotifier.value = frame;
 
     // We do not need to block the UI on the TimelineEvents feature loading the
@@ -209,16 +198,15 @@ class FlutterFramesController extends PerformanceFeatureController {
   }
 
   @override
-  Future<void> setOfflineData(PerformanceData offlineData) async {
+  Future<void> setOfflineData(OfflinePerformanceData offlineData) async {
     offlineData.frames.forEach(_assignEventsToFrame);
     _flutterFrames
       ..clear()
       ..addAll(offlineData.frames);
     final frameToSelect = offlineData.frames.firstWhereOrNull(
-      (frame) => frame.id == offlineData.selectedFrameId,
+      (frame) => frame.id == offlineData.selectedFrame?.id,
     );
     if (frameToSelect != null) {
-      performanceController.data!.selectedFrame = frameToSelect;
       _selectedFrameNotifier.value = frameToSelect;
     }
 
@@ -227,4 +215,14 @@ class FlutterFramesController extends PerformanceFeatureController {
 
   @override
   void onBecomingActive() {}
+
+  @override
+  void dispose() {
+    _selectedFrameNotifier.dispose();
+    _flutterFrames.dispose();
+    _recordingFrames.dispose();
+    _badgeTabForJankyFrames.dispose();
+    _displayRefreshRate.dispose();
+    super.dispose();
+  }
 }

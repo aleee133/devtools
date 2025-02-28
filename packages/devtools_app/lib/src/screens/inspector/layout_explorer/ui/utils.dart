@@ -1,15 +1,14 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:ui';
 
+import 'package:devtools_app_shared/ui.dart';
 import 'package:flutter/material.dart';
 
-import '../../../../shared/common_widgets.dart';
 import '../../../../shared/diagnostics/diagnostics_node.dart';
 import '../../../../shared/primitives/utils.dart';
-import '../../../../shared/theme.dart';
 import '../../inspector_data_models.dart';
 import 'overflow_indicator_painter.dart';
 import 'theme.dart';
@@ -22,7 +21,7 @@ import 'widgets_theme.dart';
 @immutable
 class BorderLayout extends StatelessWidget {
   const BorderLayout({
-    Key? key,
+    super.key,
     this.left,
     this.leftWidth,
     this.top,
@@ -32,14 +31,13 @@ class BorderLayout extends StatelessWidget {
     this.bottom,
     this.bottomHeight,
     this.center,
-  })  : assert(
-          left != null ||
-              top != null ||
-              right != null ||
-              bottom != null ||
-              center != null,
-        ),
-        super(key: key);
+  }) : assert(
+         left != null ||
+             top != null ||
+             right != null ||
+             bottom != null ||
+             center != null,
+       );
 
   final Widget? center;
   final Widget? top;
@@ -70,22 +68,22 @@ class BorderLayout extends StatelessWidget {
         if (top != null)
           Align(
             alignment: Alignment.topCenter,
-            child: Container(height: topHeight, child: top),
+            child: SizedBox(height: topHeight, child: top),
           ),
         if (left != null)
           Align(
             alignment: Alignment.centerLeft,
-            child: Container(width: leftWidth, child: left),
+            child: SizedBox(width: leftWidth, child: left),
           ),
         if (right != null)
           Align(
             alignment: Alignment.centerRight,
-            child: Container(width: rightWidth, child: right),
+            child: SizedBox(width: rightWidth, child: right),
           ),
         if (bottom != null)
           Align(
             alignment: Alignment.bottomCenter,
-            child: Container(height: bottomHeight, child: bottom),
+            child: SizedBox(height: bottomHeight, child: bottom),
           ),
       ],
     );
@@ -94,8 +92,7 @@ class BorderLayout extends StatelessWidget {
 
 @immutable
 class Truncateable extends StatelessWidget {
-  const Truncateable({Key? key, this.truncate = false, required this.child})
-      : super(key: key);
+  const Truncateable({super.key, this.truncate = false, required this.child});
 
   final Widget child;
   final bool truncate;
@@ -106,15 +103,14 @@ class Truncateable extends StatelessWidget {
   }
 }
 
-/// Widget that draws bounding box with the title (usually widget name) in its top left
+/// Widget that draws bounding box with the title (usually widget name) in its
+/// top left.
 ///
-/// [hint] is an optional widget to be placed in the top right of the box
-/// [child] is an optional widget to be placed in the center of the box
-/// [borderColor] outer box border color and background color for the title
-/// [textColor] color for title text
+/// * [hint] is an optional widget to be placed in the top right of the box.
+/// * [child] is an optional widget to be placed in the center of the box.
 class WidgetVisualizer extends StatelessWidget {
   const WidgetVisualizer({
-    Key? key,
+    super.key,
     required this.title,
     this.hint,
     required this.isSelected,
@@ -122,7 +118,7 @@ class WidgetVisualizer extends StatelessWidget {
     required this.child,
     this.overflowSide,
     this.largeTitle = false,
-  }) : super(key: key);
+  });
 
   final LayoutProperties layoutProperties;
   final String title;
@@ -163,17 +159,19 @@ class WidgetVisualizer extends StatelessWidget {
                 width:
                     isSelected ? _borderSelectedWidth : _borderUnselectedWidth,
               ),
-              color: isSelected
-                  ? theme.canvasColor.brighten()
-                  : theme.canvasColor.darken(),
-              boxShadow: isSelected
-                  ? [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.5),
-                        blurRadius: 20,
-                      ),
-                    ]
-                  : null,
+              color:
+                  isSelected
+                      ? theme.canvasColor.brighten()
+                      : theme.canvasColor.darken(),
+              boxShadow:
+                  isSelected
+                      ? [
+                        BoxShadow(
+                          color: Colors.black.withAlpha(255 ~/ 2),
+                          blurRadius: 20,
+                        ),
+                      ]
+                      : null,
             ),
             child: Stack(
               children: [
@@ -188,12 +186,14 @@ class WidgetVisualizer extends StatelessWidget {
                   ),
                 Container(
                   margin: EdgeInsets.only(
-                    right: overflowSide == OverflowSide.right
-                        ? _overflowIndicatorSize
-                        : 0.0,
-                    bottom: overflowSide == OverflowSide.bottom
-                        ? _overflowIndicatorSize
-                        : 0.0,
+                    right:
+                        overflowSide == OverflowSide.right
+                            ? _overflowIndicatorSize
+                            : 0.0,
+                    bottom:
+                        overflowSide == OverflowSide.bottom
+                            ? _overflowIndicatorSize
+                            : 0.0,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -207,18 +207,19 @@ class WidgetVisualizer extends StatelessWidget {
                             Flexible(
                               child: Container(
                                 constraints: BoxConstraints(
-                                  maxWidth: largeTitle
-                                      ? defaultMaxRenderWidth
-                                      : minRenderWidth *
-                                          widgetTitleMaxWidthPercentage,
+                                  maxWidth:
+                                      largeTitle
+                                          ? defaultMaxRenderWidth
+                                          : minRenderWidth *
+                                              widgetTitleMaxWidthPercentage,
                                 ),
                                 decoration: BoxDecoration(color: borderColor),
                                 padding: const EdgeInsets.all(4.0),
                                 child: Center(
                                   child: Text(
                                     title,
-                                    style: TextStyle(
-                                      color: colorScheme.widgetNameColor,
+                                    style: theme.regularTextStyleWithColor(
+                                      colorScheme.widgetNameColor,
                                     ),
                                     overflow: TextOverflow.ellipsis,
                                   ),
@@ -245,15 +246,15 @@ class WidgetVisualizer extends StatelessWidget {
 class AnimatedLayoutProperties<T extends LayoutProperties>
     implements LayoutProperties {
   AnimatedLayoutProperties(this.begin, this.end, this.animation)
-      : assert(begin.children.length == end.children.length),
-        _children = [
-          for (var i = 0; i < begin.children.length; i++)
-            AnimatedLayoutProperties(
-              begin.children[i],
-              end.children[i],
-              animation,
-            ),
-        ];
+    : assert(begin.children.length == end.children.length),
+      _children = [
+        for (var i = 0; i < begin.children.length; i++)
+          AnimatedLayoutProperties(
+            begin.children[i],
+            end.children[i],
+            animation,
+          ),
+      ];
 
   final T begin;
   final T end;
@@ -264,8 +265,8 @@ class AnimatedLayoutProperties<T extends LayoutProperties>
   LayoutProperties? get parent => end.parent;
 
   @override
-  set parent(LayoutProperties? _parent) {
-    end.parent = _parent;
+  set parent(LayoutProperties? parent) {
+    end.parent = parent;
   }
 
   @override
@@ -287,16 +288,16 @@ class AnimatedLayoutProperties<T extends LayoutProperties>
   List<double> childrenDimensions(Axis axis) {
     final beginDimensions = begin.childrenDimensions(axis);
     final endDimensions = end.childrenDimensions(axis);
-    return _lerpList(beginDimensions, endDimensions).cast<double>();
+    return _lerpList(beginDimensions, endDimensions);
   }
 
   @override
   List<double> get childrenHeights =>
-      _lerpList(begin.childrenHeights, end.childrenHeights).cast<double>();
+      _lerpList(begin.childrenHeights, end.childrenHeights);
 
   @override
   List<double> get childrenWidths =>
-      _lerpList(begin.childrenWidths, end.childrenWidths).cast<double>();
+      _lerpList(begin.childrenWidths, end.childrenWidths);
 
   @override
   BoxConstraints? get constraints {
@@ -316,10 +317,10 @@ class AnimatedLayoutProperties<T extends LayoutProperties>
     final constraintsLocal = constraints!;
     return constraintsLocal.hasBoundedWidth
         ? LayoutProperties.describeAxis(
-            constraintsLocal.minWidth,
-            constraintsLocal.maxWidth,
-            'w',
-          )
+          constraintsLocal.minWidth,
+          constraintsLocal.maxWidth,
+          'w',
+        )
         : 'w=unconstrained';
   }
 
@@ -328,10 +329,10 @@ class AnimatedLayoutProperties<T extends LayoutProperties>
     final constraintsLocal = constraints!;
     return constraintsLocal.hasBoundedHeight
         ? LayoutProperties.describeAxis(
-            constraintsLocal.minHeight,
-            constraintsLocal.maxHeight,
-            'h',
-          )
+          constraintsLocal.minHeight,
+          constraintsLocal.maxHeight,
+          'h',
+        )
         : 'h=unconstrained';
   }
 
@@ -419,10 +420,7 @@ class AnimatedLayoutProperties<T extends LayoutProperties>
 }
 
 class LayoutExplorerBackground extends StatelessWidget {
-  const LayoutExplorerBackground({
-    Key? key,
-    required this.colorScheme,
-  }) : super(key: key);
+  const LayoutExplorerBackground({super.key, required this.colorScheme});
 
   final ColorScheme colorScheme;
 

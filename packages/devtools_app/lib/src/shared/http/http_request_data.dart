@@ -1,6 +1,6 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 import 'dart:convert';
@@ -13,6 +13,7 @@ import 'package:vm_service/vm_service.dart';
 import '../../screens/network/network_model.dart';
 import '../globals.dart';
 import '../primitives/utils.dart';
+import 'constants.dart';
 import 'http.dart';
 
 final _log = Logger('http_request_data');
@@ -26,7 +27,7 @@ class DartIOHttpInstantEvent {
   String get name => _event.event;
 
   /// The time the instant event was recorded.
-  int get timestampMicros => _event.timestamp;
+  DateTime get timestamp => _event.timestamp;
 
   /// The amount of time since the last instant event completed.
   TimeRange? get timeRange => _timeRange;
@@ -38,13 +39,47 @@ class DartIOHttpInstantEvent {
 /// An abstraction of an HTTP request made through dart:io.
 class DartIOHttpRequestData extends NetworkRequest {
   DartIOHttpRequestData(
-    int timelineMicrosBase,
     this._request, {
     bool requestFullDataFromVmService = true,
-  }) : super(timelineMicrosBase) {
+  }) {
     if (requestFullDataFromVmService && _request.isResponseComplete) {
       unawaited(getFullRequestData());
     }
+  }
+
+  factory DartIOHttpRequestData.fromJson(
+    Map<String, Object?> modifiedRequestData,
+    Map<String, Object?>? requestPostData,
+    Map<String, Object?>? responseContent,
+  ) {
+    final isFullRequest =
+        modifiedRequestData.containsKey(HttpRequestDataKeys.requestBody.name) &&
+        modifiedRequestData.containsKey(HttpRequestDataKeys.responseBody.name);
+
+    final parsedRequest =
+        isFullRequest
+            ? HttpProfileRequest.parse(modifiedRequestData)
+            : HttpProfileRequestRef.parse(modifiedRequestData);
+
+    final responseBody =
+        responseContent?[HttpRequestDataKeys.text.name]?.toString();
+    final requestBody =
+        requestPostData?[HttpRequestDataKeys.text.name]?.toString();
+
+    return DartIOHttpRequestData(
+        parsedRequest!,
+        requestFullDataFromVmService: parsedRequest is! HttpProfileRequest,
+      )
+      .._responseBody = responseBody
+      .._requestBody = requestBody;
+  }
+
+  @override
+  Map<String, Object?> toJson() {
+    return {
+      HttpRequestDataKeys.request.name:
+          (_request as HttpProfileRequest).toJson(),
+    };
   }
 
   static const _connectionInfoKey = 'connectionInfo';
@@ -53,28 +88,24 @@ class DartIOHttpRequestData extends NetworkRequest {
 
   HttpProfileRequestRef _request;
 
-  bool isOutStanding = false;
-
-  final ValueNotifier<int> _updateCount = ValueNotifier<int>(0);
-
-  /// A notifier that changes when the request data, or it's response body
-  /// changes.
-  ValueListenable<void> get requestUpdatedNotifier => _updateCount;
   bool isFetchingFullData = false;
 
   Future<void> getFullRequestData() async {
     try {
       if (isFetchingFullData) return; // We are already fetching
       isFetchingFullData = true;
-      final updated = await serviceManager.service!.getHttpProfileRequest(
-        _request.isolateId,
-        _request.id.toString(),
-      );
-      _request = updated;
-      _updateCount.value++;
-      final fullRequest = _request as HttpProfileRequest;
-      _responseBody = utf8.decode(fullRequest.responseBody!);
-      _requestBody = utf8.decode(fullRequest.requestBody!);
+      if (serviceConnection.serviceManager.connectedState.value.connected) {
+        final updated = await serviceConnection.serviceManager.service!
+            .getHttpProfileRequestWrapper(
+              _request.isolateId,
+              _request.id.toString(),
+            );
+        _request = updated;
+        final fullRequest = _request as HttpProfileRequest;
+        _responseBody = utf8.decode(fullRequest.responseBody!);
+        _requestBody = utf8.decode(fullRequest.requestBody!);
+        notifyListeners();
+      }
     } finally {
       isFetchingFullData = false;
     }
@@ -90,17 +121,14 @@ class DartIOHttpRequestData extends NetworkRequest {
 
   bool get _hasError => _request.request?.hasError ?? false;
 
-  int? get _endTime =>
+  DateTime? get _endTime =>
       _hasError ? _request.endTime : _request.response?.endTime;
 
   @override
   Duration? get duration {
     if (inProgress || !isValid) return null;
     // Timestamps are in microseconds
-    final range = TimeRange()
-      ..start = Duration(microseconds: _request.startTime)
-      ..end = Duration(microseconds: _endTime!);
-    return range.duration;
+    return _endTime!.difference(_request.startTime);
   }
 
   /// Whether the request is safe to display in the UI.
@@ -125,23 +153,27 @@ class DartIOHttpRequestData extends NetworkRequest {
         'reasonPhrase': _request.response!.reasonPhrase,
         'redirects': _request.response!.redirects,
         'statusCode': _request.response!.statusCode,
+        'queryParameters': _request.uri.queryParameters,
       },
     };
   }
 
   @override
   String? get contentType {
-    final _headers = responseHeaders;
-    if (_headers == null || _headers[_contentTypeKey] == null) {
+    final headers = responseHeaders;
+    if (headers == null || headers[_contentTypeKey] == null) {
       return null;
     }
-    return _headers[_contentTypeKey].toString();
+    return headers[_contentTypeKey].toString();
   }
 
   @override
   String get type {
+    const defaultType = 'http';
     var mime = contentType;
-    if (mime == null) return 'http';
+    if (mime == null) {
+      return defaultType;
+    }
 
     // Extract the MIME from `contentType`.
     // Example: "[text/html; charset-UTF-8]" --> "text/html"
@@ -152,24 +184,24 @@ class DartIOHttpRequestData extends NetworkRequest {
     if (mime.endsWith(']')) {
       mime = mime.substring(0, mime.length - 1);
     }
-    return _extensionFromMime(mime);
+    return _extensionFromMime(mime) ?? defaultType;
   }
 
   /// Extracts the extension from [mime], with overrides for shortened
-  /// extenstions of common types (e.g., jpe -> jpeg).
-  String _extensionFromMime(String mime) {
-    final extension = extensionFromMime(mime);
-    if (extension == 'jpe') {
+  /// extensions of common types (e.g., jpe -> jpeg).
+  String? _extensionFromMime(String mime) {
+    final ext = extensionFromMime(mime);
+    if (ext == 'jpe') {
       return 'jpeg';
     }
-    if (extension == 'htm') {
+    if (ext == 'htm') {
       return 'html';
     }
     // text/plain -> conf
-    if (extension == 'conf') {
+    if (ext == 'conf') {
       return 'txt';
     }
-    return extension;
+    return ext;
   }
 
   @override
@@ -190,10 +222,8 @@ class DartIOHttpRequestData extends NetworkRequest {
   /// All instant events logged to the timeline for this HTTP request.
   List<DartIOHttpInstantEvent> get instantEvents {
     if (_instantEvents == null) {
-      _instantEvents = [
-        for (final event in _request.request?.events ?? [])
-          DartIOHttpInstantEvent._(event),
-      ];
+      _instantEvents =
+          _request.events.map((e) => DartIOHttpInstantEvent._(e)).toList();
       _recalculateInstantEventTimes();
     }
     return _instantEvents!;
@@ -206,9 +236,10 @@ class DartIOHttpRequestData extends NetworkRequest {
       requestCookies.isNotEmpty || responseCookies.isNotEmpty;
 
   /// A list of all cookies contained within the request headers.
-  List<Cookie> get requestCookies => _hasError
-      ? []
-      : DartIOHttpRequestData._parseCookies(_request.request?.cookies);
+  List<Cookie> get requestCookies =>
+      _hasError
+          ? []
+          : DartIOHttpRequestData._parseCookies(_request.request?.cookies);
 
   /// A list of all cookies contained within the response headers.
   List<Cookie> get responseCookies =>
@@ -220,6 +251,9 @@ class DartIOHttpRequestData extends NetworkRequest {
 
   /// The response headers for the HTTP request.
   Map<String, dynamic>? get responseHeaders => _request.response?.headers;
+
+  /// The query parameters for the request.
+  Map<String, dynamic>? get queryParameters => _request.uri.queryParameters;
 
   @override
   bool get didFail {
@@ -239,26 +273,18 @@ class DartIOHttpRequestData extends NetworkRequest {
     return false;
   }
 
-  /// Merges the information from another [HttpRequestData] into this instance.
+  /// Merges the information from another [DartIOHttpRequestData] into this
+  /// instance.
   void merge(DartIOHttpRequestData data) {
     _request = data._request;
-    _updateCount.value++;
+    notifyListeners();
   }
 
   @override
-  DateTime? get endTimestamp {
-    final endTime = _endTime;
-    return endTime == null
-        ? null
-        : DateTime.fromMicrosecondsSinceEpoch(
-            timelineMicrosecondsSinceEpoch(endTime),
-          );
-  }
+  DateTime? get endTimestamp => _endTime;
 
   @override
-  DateTime get startTimestamp => DateTime.fromMicrosecondsSinceEpoch(
-        timelineMicrosecondsSinceEpoch(_request.startTime),
-      );
+  DateTime get startTimestamp => _request.startTime;
 
   @override
   String? get status =>
@@ -311,29 +337,120 @@ class DartIOHttpRequestData extends NetworkRequest {
   String? _requestBody;
 
   void _recalculateInstantEventTimes() {
-    int lastTime = _request.startTime;
+    DateTime lastTime = _request.startTime;
     for (final instant in instantEvents) {
-      final instantTime = instant.timestampMicros;
-      instant._timeRange = TimeRange()
-        ..start = Duration(microseconds: lastTime)
-        ..end = Duration(microseconds: instantTime);
+      final instantTime = instant.timestamp;
+      instant._timeRange =
+          TimeRange()
+            ..start = Duration(microseconds: lastTime.microsecondsSinceEpoch)
+            ..end = Duration(microseconds: instantTime.microsecondsSinceEpoch);
       lastTime = instantTime;
     }
   }
 
   @override
-  bool operator ==(other) {
+  bool operator ==(Object other) {
     return other is DartIOHttpRequestData && id == other.id && super == other;
   }
 
   @override
-  int get hashCode => Object.hash(
-        id,
-        method,
-        uri,
-        contentType,
-        type,
-        port,
-        startTimestamp,
-      );
+  int get hashCode =>
+      Object.hash(id, method, uri, contentType, type, port, startTimestamp);
+}
+
+extension HttpRequestExtension on List<DartIOHttpRequestData> {
+  List<HttpProfileRequest> get mapToHttpProfileRequests {
+    return map(
+      (httpRequestData) => httpRequestData._request as HttpProfileRequest,
+    ).toList();
+  }
+}
+
+extension HttpProfileRequestExtension on HttpProfileRequest {
+  Map<String, Object?> toJson() {
+    return {
+      HttpRequestDataKeys.id.name: id,
+      HttpRequestDataKeys.method.name: method,
+      HttpRequestDataKeys.uri.name: uri.toString(),
+      HttpRequestDataKeys.startTime.name: startTime.microsecondsSinceEpoch,
+      HttpRequestDataKeys.endTime.name: endTime?.microsecondsSinceEpoch,
+      HttpRequestDataKeys.response.name: response?.toJson(),
+      HttpRequestDataKeys.request.name: request?.toJson(),
+      HttpRequestDataKeys.isolateId.name: isolateId,
+      HttpRequestDataKeys.events.name: events.map((e) => e.toJson()).toList(),
+      HttpRequestDataKeys.requestBody.name: requestBody?.toList(),
+      HttpRequestDataKeys.responseBody.name: responseBody?.toList(),
+    };
+  }
+}
+
+extension HttpProfileRequestDataExtension on HttpProfileRequestData {
+  Map<String, Object?> toJson() {
+    final jsonMap = <String, Object?>{};
+    try {
+      jsonMap[HttpRequestDataKeys.headers.name] = headers ?? {};
+      jsonMap[HttpRequestDataKeys.followRedirects.name] = followRedirects;
+      jsonMap[HttpRequestDataKeys.maxRedirects.name] = maxRedirects;
+      jsonMap[HttpRequestDataKeys.connectionInfo.name] = connectionInfo;
+      jsonMap[HttpRequestDataKeys.contentLength.name] = contentLength;
+      jsonMap[HttpRequestDataKeys.cookies.name] = cookies ?? [];
+      jsonMap[HttpRequestDataKeys.persistentConnection.name] =
+          persistentConnection;
+      jsonMap[HttpRequestDataKeys.proxyDetails.name] = proxyDetails?.toJson();
+    } catch (e, st) {
+      _log.shout('Error serializing HttpProfileRequestData', e, st);
+      jsonMap[HttpRequestDataKeys.error.name] =
+          error ?? 'Serialization failed: $e';
+    }
+    return jsonMap;
+  }
+}
+
+extension HttpProfileResponseDataExtension on HttpProfileResponseData {
+  Map<String, Object?> toJson() {
+    final jsonMap = <String, Object?>{};
+    try {
+      jsonMap[HttpRequestDataKeys.startTime.name] =
+          startTime?.microsecondsSinceEpoch;
+      jsonMap[HttpRequestDataKeys.endTime.name] =
+          endTime?.microsecondsSinceEpoch;
+      jsonMap[HttpRequestDataKeys.headers.name] = headers ?? {};
+      jsonMap[HttpRequestDataKeys.compressionState.name] = compressionState;
+      jsonMap[HttpRequestDataKeys.connectionInfo.name] = connectionInfo;
+      jsonMap[HttpRequestDataKeys.contentLength.name] = contentLength;
+      jsonMap[HttpRequestDataKeys.cookies.name] = cookies ?? [];
+      jsonMap[HttpRequestDataKeys.isRedirect.name] = isRedirect;
+      jsonMap[HttpRequestDataKeys.persistentConnection.name] =
+          persistentConnection;
+      jsonMap[HttpRequestDataKeys.reasonPhrase.name] = reasonPhrase;
+      jsonMap[HttpRequestDataKeys.redirects.name] = redirects;
+      jsonMap[HttpRequestDataKeys.statusCode.name] = statusCode;
+    } catch (e, st) {
+      _log.shout('Error serializing HttpProfileResponseData', e, st);
+      jsonMap[HttpRequestDataKeys.error.name] =
+          error ?? 'Serialization failed: $e';
+    }
+    return jsonMap;
+  }
+}
+
+extension HttpProfileRequestEventExtension on HttpProfileRequestEvent {
+  Map<String, Object?> toJson() {
+    return {
+      HttpRequestDataKeys.event.name: event,
+      HttpRequestDataKeys.timestamp.name: timestamp.microsecondsSinceEpoch,
+      HttpRequestDataKeys.arguments.name: arguments,
+    };
+  }
+}
+
+extension HttpProfileProxyDataExtension on HttpProfileProxyData {
+  Map<String, Object?> toJson() {
+    return {
+      HttpRequestDataKeys.host.name: host,
+      HttpRequestDataKeys.username.name: username,
+      HttpRequestDataKeys.isDirect.name: isDirect,
+      HttpRequestDataKeys.host.name: port,
+    };
+  }
 }

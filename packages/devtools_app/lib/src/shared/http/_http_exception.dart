@@ -4,16 +4,17 @@
 
 // This code was pulled from dart:io.
 
-part of http;
+part of 'http.dart';
 
 class HttpException {
   const HttpException(this.message, {this.uri});
 
   @override
   String toString() {
-    final b = StringBuffer()
-      ..write('HttpException: ')
-      ..write(message);
+    final b =
+        StringBuffer()
+          ..write('HttpException: ')
+          ..write(message);
     if (uri != null) {
       b.write(', uri = $uri');
     }

@@ -1,12 +1,12 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:math' as math;
 
 import 'compare.dart';
 
-class SemanticVersion with CompareMixin {
+class SemanticVersion with CompareMixin<SemanticVersion> {
   SemanticVersion({
     this.major = 0,
     this.minor = 0,
@@ -72,14 +72,14 @@ class SemanticVersion with CompareMixin {
     );
   }
 
-  /// Returns a new [SemanticVersion] that is downgraded from [this].
+  /// Returns a new [SemanticVersion] that is downgraded from `this`.
   ///
   /// At a minimum, the pre-release version will be removed. Other downgrades
   /// can be applied by specifying any of [downgradeMajor], [downgradeMinor],
   /// and [downgradePatch], which will decrement the value of their respective
   /// version part by one (unless the value is already 0).
   ///
-  /// This method may return a version equal to [this] if no downgrade options
+  /// This method may return a version equal to `this` if no downgrade options
   /// are specified.
   SemanticVersion downgrade({
     bool downgradeMajor = false,
@@ -117,11 +117,11 @@ class SemanticVersion with CompareMixin {
 
   bool get isPreRelease => preReleaseMajor != null || preReleaseMinor != null;
 
-  bool isSupported({required SemanticVersion supportedVersion}) =>
-      compareTo(supportedVersion) >= 0;
+  bool isSupported({required SemanticVersion minSupportedVersion}) =>
+      compareTo(minSupportedVersion) >= 0;
 
   @override
-  int compareTo(other) {
+  int compareTo(SemanticVersion other) {
     if (major == other.major &&
         minor == other.minor &&
         patch == other.patch &&
@@ -138,7 +138,7 @@ class SemanticVersion with CompareMixin {
       if (isPreRelease != other.isPreRelease) {
         return isPreRelease ? -1 : 1;
       }
-      if (preReleaseMajor! > other.preReleaseMajor ||
+      if (preReleaseMajor! > other.preReleaseMajor! ||
           (preReleaseMajor == other.preReleaseMajor &&
               (preReleaseMinor ?? 0) > (other.preReleaseMinor ?? 0))) {
         return 1;

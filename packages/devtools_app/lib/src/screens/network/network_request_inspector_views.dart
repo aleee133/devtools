@@ -2,38 +2,38 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'dart:convert';
+
+import 'package:devtools_app_shared/ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as image;
 
-import '../../shared/common_widgets.dart';
 import '../../shared/http/http.dart';
 import '../../shared/http/http_request_data.dart';
+import '../../shared/primitives/byte_utils.dart';
 import '../../shared/primitives/utils.dart';
-import '../../shared/table/table.dart';
-import '../../shared/theme.dart';
 import '../../shared/ui/colors.dart';
+import '../../shared/ui/common_widgets.dart';
+import 'network_controller.dart';
 import 'network_model.dart';
 
 // Approximately double the indent of the expandable tile's title.
-const double _rowIndentPadding = 30;
+const _rowIndentPadding = 30.0;
 
 // No padding between the last element and the divider of a expandable tile.
-const double _rowSpacingPadding = 15;
+const _rowSpacingPadding = 15.0;
 
-const EdgeInsets _rowPadding =
-    EdgeInsets.only(left: _rowIndentPadding, bottom: _rowSpacingPadding);
+const _rowPadding = EdgeInsets.only(
+  left: _rowIndentPadding,
+  bottom: _rowSpacingPadding,
+);
 
 /// Helper to build ExpansionTile widgets for inspector views.
-ExpansionTile _buildTile(
-  String title,
-  List<Widget> children, {
-  Key? key,
-}) {
+ExpansionTile _buildTile(String title, List<Widget> children, {Key? key}) {
   return ExpansionTile(
     key: key,
-    title: Text(
-      title,
-    ),
+    title: Text(title),
     initiallyExpanded: true,
     children: children,
   );
@@ -42,7 +42,7 @@ ExpansionTile _buildTile(
 /// This widget displays general HTTP request / response information that is
 /// contained in the headers, in addition to the standard connection information.
 class HttpRequestHeadersView extends StatelessWidget {
-  const HttpRequestHeadersView(this.data);
+  const HttpRequestHeadersView(this.data, {super.key});
 
   @visibleForTesting
   static const generalKey = Key('General');
@@ -60,35 +60,29 @@ class HttpRequestHeadersView extends StatelessWidget {
     final requestHeaders = data.requestHeaders;
     return LayoutBuilder(
       builder: (context, constraints) {
-        return ListView(
-          children: [
-            _buildTile(
-              'General',
-              [
+        return SelectionArea(
+          child: ListView(
+            children: [
+              _buildTile('General', [
                 for (final entry in general.entries)
-                  _Row(entry: entry, constraints: constraints),
-              ],
-              key: generalKey,
-            ),
-            _buildTile(
-              'Response Headers',
-              [
+                  _Row(
+                    entry: entry,
+                    constraints: constraints,
+                    isErrorValue: data.didFail && entry.key == 'statusCode',
+                  ),
+              ], key: generalKey),
+              _buildTile('Response Headers', [
                 if (responseHeaders != null)
                   for (final entry in responseHeaders.entries)
                     _Row(entry: entry, constraints: constraints),
-              ],
-              key: responseHeadersKey,
-            ),
-            _buildTile(
-              'Request Headers',
-              [
+              ], key: responseHeadersKey),
+              _buildTile('Request Headers', [
                 if (requestHeaders != null)
                   for (final entry in requestHeaders.entries)
                     _Row(entry: entry, constraints: constraints),
-              ],
-              key: requestHeadersKey,
-            ),
-          ],
+              ], key: requestHeadersKey),
+            ],
+          ),
         );
       },
     );
@@ -99,27 +93,27 @@ class _Row extends StatelessWidget {
   const _Row({
     required this.entry,
     required this.constraints,
+    this.isErrorValue = false,
   });
 
   final MapEntry<String, Object?> entry;
   final BoxConstraints constraints;
+  final bool isErrorValue;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
       width: constraints.minWidth,
       padding: _rowPadding,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SelectableText(
-            '${entry.key}: ',
-            style: Theme.of(context).textTheme.titleSmall,
-          ),
+          Text('${entry.key}: ', style: theme.textTheme.titleMedium),
           Expanded(
-            child: SelectableText(
+            child: Text(
+              style: isErrorValue ? theme.errorTextStyle : null,
               '${entry.value}',
-              minLines: 1,
             ),
           ),
         ],
@@ -129,41 +123,46 @@ class _Row extends StatelessWidget {
 }
 
 class HttpRequestView extends StatelessWidget {
-  const HttpRequestView(this.data);
+  const HttpRequestView(this.data, {super.key});
 
   final DartIOHttpRequestData data;
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder(
-      valueListenable: data.requestUpdatedNotifier,
-      builder: (context, __, ___) {
+    return ListenableBuilder(
+      listenable: data,
+      builder: (context, _) {
         final theme = Theme.of(context);
         final requestHeaders = data.requestHeaders;
         final requestContentType = requestHeaders?['content-type'] ?? '';
         final isLoading = data.isFetchingFullData;
         if (isLoading) {
-          return CenteredCircularProgressIndicator(
-            size: mediumProgressSize,
-          );
+          return CenteredCircularProgressIndicator(size: mediumProgressSize);
         }
 
-        final isJson = requestContentType is List
-            ? requestContentType.any((element) => element.contains('json'))
-            : requestContentType.contains('json');
+        final isJson = switch (requestContentType) {
+          List() => requestContentType.any(
+            (e) => (e as String).contains('json'),
+          ),
+          String() => requestContentType.contains('json'),
+          _ =>
+            throw StateError(
+              "Expected 'content-type' to be a List or String, but got: "
+              '$requestContentType',
+            ),
+        };
 
         Widget child;
-        child = isJson
-            ? JsonViewer(encodedJson: data.requestBody!)
-            : Text(
-                data.requestBody!,
-                style: theme.fixedFontStyle,
-              );
+        child =
+            isJson
+                ? JsonViewer(encodedJson: data.requestBody!)
+                : TextViewer(
+                  text: data.requestBody!,
+                  style: theme.fixedFontStyle,
+                );
         return Padding(
           padding: const EdgeInsets.all(denseSpacing),
-          child: SingleChildScrollView(
-            child: child,
-          ),
+          child: SingleChildScrollView(child: child),
         );
       },
     );
@@ -175,15 +174,15 @@ class HttpRequestView extends StatelessWidget {
 /// If there is no content to copy, the button will not show. The copy contents
 /// will update as the request's data is updated.
 class HttpViewTrailingCopyButton extends StatelessWidget {
-  const HttpViewTrailingCopyButton(this.data, this.dataSelector);
+  const HttpViewTrailingCopyButton(this.data, this.dataSelector, {super.key});
   final DartIOHttpRequestData data;
   final String? Function(DartIOHttpRequestData) dataSelector;
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder(
-      valueListenable: data.requestUpdatedNotifier,
-      builder: (context, __, ___) {
+    return ListenableBuilder(
+      listenable: data,
+      builder: (context, _) {
         final dataToCopy = dataSelector(data);
         final isLoading = data.isFetchingFullData;
         if (dataToCopy == null || dataToCopy.isEmpty || isLoading) {
@@ -192,8 +191,71 @@ class HttpViewTrailingCopyButton extends StatelessWidget {
 
         return Align(
           alignment: Alignment.centerRight,
-          child: CopyToClipboardControl(
-            dataProvider: () => dataToCopy,
+          child: CopyToClipboardControl(dataProvider: () => dataToCopy),
+        );
+      },
+    );
+  }
+}
+
+/// A DropDownButton for selecting [NetworkResponseViewType].
+///
+/// If there is no content to visualise, the drop down will not show. Drop down
+/// values will update as the request's data is updated.
+class HttpResponseTrailingDropDown extends StatelessWidget {
+  const HttpResponseTrailingDropDown(
+    this.data, {
+    super.key,
+    required this.currentResponseViewType,
+    required this.onChanged,
+  });
+
+  final ValueListenable<NetworkResponseViewType> currentResponseViewType;
+  final DartIOHttpRequestData data;
+  final ValueChanged<NetworkResponseViewType> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: data,
+      builder: (_, _) {
+        final visible =
+            (data.contentType != null &&
+                !data.contentType!.contains('image')) &&
+            data.responseBody!.isNotEmpty;
+
+        final availableResponseTypes = <NetworkResponseViewType>[
+          NetworkResponseViewType.auto,
+          if (_isJsonDecodable(data.responseBody!))
+            NetworkResponseViewType.json,
+          NetworkResponseViewType.text,
+        ];
+
+        return Visibility(
+          visible: visible,
+          replacement: const SizedBox(),
+          child: ValueListenableBuilder<NetworkResponseViewType>(
+            valueListenable: currentResponseViewType,
+            builder: (_, currentType, _) {
+              return RoundedDropDownButton<NetworkResponseViewType>(
+                value: currentType,
+                items:
+                    availableResponseTypes
+                        .map(
+                          (e) => DropdownMenuItem(
+                            value: e,
+                            child: Text(e.toString()),
+                          ),
+                        )
+                        .toList(),
+                onChanged: (value) {
+                  if (value == null) {
+                    return;
+                  }
+                  onChanged(value);
+                },
+              );
+            },
           ),
         );
       },
@@ -202,15 +264,20 @@ class HttpViewTrailingCopyButton extends StatelessWidget {
 }
 
 class HttpResponseView extends StatelessWidget {
-  const HttpResponseView(this.data);
+  const HttpResponseView(
+    this.data, {
+    super.key,
+    required this.currentResponseViewType,
+  });
 
   final DartIOHttpRequestData data;
+  final ValueListenable<NetworkResponseViewType> currentResponseViewType;
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder(
-      valueListenable: data.requestUpdatedNotifier,
-      builder: (context, __, ___) {
+    return ListenableBuilder(
+      listenable: data,
+      builder: (context, _) {
         Widget child;
         final theme = Theme.of(context);
         // We shouldn't try and display an image response view when using the
@@ -220,20 +287,16 @@ class HttpResponseView extends StatelessWidget {
         final responseBody = data.responseBody!;
         final isLoading = data.isFetchingFullData;
         if (isLoading) {
-          return CenteredCircularProgressIndicator(
-            size: mediumProgressSize,
-          );
+          return CenteredCircularProgressIndicator(size: mediumProgressSize);
         }
         if (contentType != null && contentType.contains('image')) {
           child = ImageResponseView(data);
-        } else if (contentType != null &&
-            contentType.contains('json') &&
-            responseBody.isNotEmpty) {
-          child = JsonViewer(encodedJson: responseBody);
         } else {
-          child = Text(
-            responseBody,
-            style: theme.fixedFontStyle,
+          child = HttpTextResponseViewer(
+            contentType: contentType,
+            responseBody: responseBody,
+            currentResponseNotifier: currentResponseViewType,
+            textStyle: theme.fixedFontStyle,
           );
         }
         return Padding(
@@ -245,8 +308,59 @@ class HttpResponseView extends StatelessWidget {
   }
 }
 
+class HttpTextResponseViewer extends StatelessWidget {
+  const HttpTextResponseViewer({
+    super.key,
+    required String? contentType,
+    required this.responseBody,
+    required this.currentResponseNotifier,
+    required this.textStyle,
+  }) : _contentType = contentType;
+
+  final String? _contentType;
+  final String responseBody;
+  final ValueListenable<NetworkResponseViewType> currentResponseNotifier;
+  final TextStyle textStyle;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder(
+      valueListenable: currentResponseNotifier,
+      builder: (_, currentResponseType, _) {
+        NetworkResponseViewType currentLocalResponseType = currentResponseType;
+
+        if (currentResponseType == NetworkResponseViewType.auto) {
+          if (_contentType != null &&
+              _contentType.contains('json') &&
+              responseBody.isNotEmpty) {
+            currentLocalResponseType = NetworkResponseViewType.json;
+          } else {
+            currentLocalResponseType = NetworkResponseViewType.text;
+          }
+        }
+
+        return switch (currentLocalResponseType) {
+          NetworkResponseViewType.json =>
+            // Don't load the JsonViewer if we can't decode the JSON.
+            _isJsonDecodable(responseBody)
+                ? JsonViewer(encodedJson: responseBody)
+                : TextViewer(
+                  // We could also include the decoding exception. Or push a notification.
+                  text: responseBody,
+                ),
+          NetworkResponseViewType.text => TextViewer(
+            text: responseBody,
+            style: textStyle,
+          ),
+          _ => const SizedBox(),
+        };
+      },
+    );
+  }
+}
+
 class ImageResponseView extends StatelessWidget {
-  const ImageResponseView(this.data);
+  const ImageResponseView(this.data, {super.key});
 
   final DartIOHttpRequestData data;
 
@@ -257,80 +371,52 @@ class ImageResponseView extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildTile(
-          'Image Preview',
-          [
-            Padding(
-              padding: const EdgeInsets.all(
-                denseSpacing,
-              ),
-              child: Image.memory(
-                encodedResponse,
-              ),
-            ),
-          ],
-        ),
-        _buildTile(
-          'Metadata',
-          [
-            _buildRow(
-              context,
-              'Format',
-              data.type,
-            ),
-            _buildRow(
-              context,
-              'Size',
-              prettyPrintBytes(
-                encodedResponse.lengthInBytes,
-                includeUnit: true,
-              )!,
-            ),
-            _buildRow(
-              context,
-              'Dimensions',
-              '${img.width} x ${img.height}',
-            ),
-          ],
-        ),
+        _buildTile('Image Preview', [
+          Padding(
+            padding: const EdgeInsets.all(denseSpacing),
+            child: Image.memory(encodedResponse),
+          ),
+        ]),
+        _buildTile('Metadata', [
+          _buildRow(context, 'Format', data.type),
+          _buildRow(
+            context,
+            'Size',
+            prettyPrintBytes(encodedResponse.lengthInBytes, includeUnit: true)!,
+          ),
+          _buildRow(context, 'Dimensions', '${img.width} x ${img.height}'),
+        ]),
       ],
     );
   }
 
-  Widget _buildRow(
-    BuildContext context,
-    String key,
-    String value,
-  ) {
+  Widget _buildRow(BuildContext context, String key, String value) {
     return Padding(
       padding: _rowPadding,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SelectableText(
-            '$key: ',
-            style: Theme.of(context).textTheme.titleSmall,
-          ),
-          Expanded(
-            child: SelectableText(
-              value,
-              // TODO(kenz): use top level overflow parameter if
-              // https://github.com/flutter/flutter/issues/82722 is fixed.
-              // TODO(kenz): add overflow after flutter 2.3.0 is stable. It was
-              // added in commit 65388ee2eeaf0d2cf087eaa4a325e3689020c46a.
-              // style: const TextStyle(overflow: TextOverflow.ellipsis),
-            ),
-          ),
+          Text('$key: ', style: Theme.of(context).textTheme.titleMedium),
+          Expanded(child: Text(value, overflow: TextOverflow.ellipsis)),
         ],
       ),
     );
   }
 }
 
+bool _isJsonDecodable(String source) {
+  try {
+    json.decode(source);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 /// A [Widget] which displays [Cookie] information in a tab.
 class HttpRequestCookiesView extends StatelessWidget {
-  const HttpRequestCookiesView(this.data);
+  const HttpRequestCookiesView(this.data, {super.key});
 
   @visibleForTesting
   static const requestCookiesKey = Key('Request Cookies');
@@ -359,7 +445,7 @@ class HttpRequestCookiesView extends StatelessWidget {
     );
   }
 
-  DataCell _buildCell(String? value) => DataCell(SelectableText(value ?? '--'));
+  DataCell _buildCell(String? value) => DataCell(Text(value ?? '--'));
 
   DataCell _buildIconCell(IconData icon) =>
       DataCell(Icon(icon, size: defaultIconSize));
@@ -373,80 +459,63 @@ class HttpRequestCookiesView extends StatelessWidget {
     bool requestCookies = false,
   }) {
     final theme = Theme.of(context);
-    DataColumn _buildColumn(
-      String title, {
-      bool numeric = false,
-    }) {
+    DataColumn buildColumn(String title, {bool numeric = false}) {
       return DataColumn(
         label: Expanded(
-          child: SelectableText(
+          child: Text(
             title,
-            // TODO(kenz): use top level overflow parameter if
-            // https://github.com/flutter/flutter/issues/82722 is fixed.
-            // TODO(kenz): add overflow after flutter 2.3.0 is stable. It was
-            // added in commit 65388ee2eeaf0d2cf087eaa4a325e3689020c46a.
-            // style: theme.textTheme.titleMedium.copyWith(
-            //   overflow: TextOverflow.fade,
-            // ),
             style: theme.textTheme.titleMedium,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
         numeric: numeric,
       );
     }
 
-    return _buildTile(
-      title,
-      [
-        // Add a divider between the tile's title and the cookie table headers for
-        // symmetry.
-        const Divider(
-          // Remove extra padding at the top of the divider; the tile's title
-          // already has bottom padding.
-          height: 0,
-        ),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: ConstrainedBox(
-              constraints: requestCookies
-                  ? const BoxConstraints()
-                  : BoxConstraints(
-                      minWidth: constraints.minWidth,
-                    ),
-              child: DataTable(
-                key: key,
-                dataRowMinHeight: defaultRowHeight,
-                dataRowMaxHeight: defaultRowHeight,
-                // NOTE: if this list of columns change, _buildRow will need
-                // to be updated to match.
-                columns: [
-                  _buildColumn('Name'),
-                  _buildColumn('Value'),
-                  if (!requestCookies) ...[
-                    _buildColumn('Domain'),
-                    _buildColumn('Path'),
-                    _buildColumn('Expires / Max Age'),
-                    _buildColumn('Size', numeric: true),
-                    _buildColumn('HttpOnly'),
-                    _buildColumn('Secure'),
-                  ],
+    return _buildTile(title, [
+      // Add a divider between the tile's title and the cookie table headers for
+      // symmetry.
+      const Divider(
+        // Remove extra padding at the top of the divider; the tile's title
+        // already has bottom padding.
+        height: 0,
+      ),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: ConstrainedBox(
+            constraints:
+                requestCookies
+                    ? const BoxConstraints()
+                    : BoxConstraints(minWidth: constraints.minWidth),
+            child: DataTable(
+              key: key,
+              dataRowMinHeight: defaultRowHeight,
+              dataRowMaxHeight: defaultRowHeight,
+              // NOTE: if this list of columns change, _buildRow will need
+              // to be updated to match.
+              columns: [
+                buildColumn('Name'),
+                buildColumn('Value'),
+                if (!requestCookies) ...[
+                  buildColumn('Domain'),
+                  buildColumn('Path'),
+                  buildColumn('Expires / Max Age'),
+                  buildColumn('Size', numeric: true),
+                  buildColumn('HttpOnly'),
+                  buildColumn('Secure'),
                 ],
-                rows: [
-                  for (int i = 0; i < cookies.length; ++i)
-                    _buildRow(
-                      i,
-                      cookies[i],
-                      requestCookies: requestCookies,
-                    ),
-                ],
-              ),
+              ],
+              rows: [
+                for (int i = 0; i < cookies.length; ++i)
+                  _buildRow(i, cookies[i], requestCookies: requestCookies),
+              ],
             ),
           ),
         ),
-      ],
-    );
+      ),
+    ]);
   }
 
   @override
@@ -468,9 +537,7 @@ class HttpRequestCookiesView extends StatelessWidget {
             // Add padding between the cookie tables if displaying both
             // response and request cookies.
             if (responseCookies.isNotEmpty && requestCookies.isNotEmpty)
-              const Padding(
-                padding: EdgeInsets.only(bottom: 24.0),
-              ),
+              const Padding(padding: EdgeInsets.only(bottom: 24.0)),
             if (requestCookies.isNotEmpty)
               _buildCookiesTable(
                 context,
@@ -488,7 +555,7 @@ class HttpRequestCookiesView extends StatelessWidget {
 }
 
 class NetworkRequestOverviewView extends StatelessWidget {
-  const NetworkRequestOverviewView(this.data);
+  const NetworkRequestOverviewView(this.data, {super.key});
 
   static const _keyWidth = 110.0;
   static const _timingGraphHeight = 18.0;
@@ -501,16 +568,18 @@ class NetworkRequestOverviewView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(defaultSpacing),
-      children: [
-        ..._buildGeneralRows(context),
-        if (data is WebSocket) ..._buildSocketOverviewRows(context),
-        const PaddedDivider(
-          padding: EdgeInsets.only(bottom: denseRowSpacing),
-        ),
-        ..._buildTimingOverview(context),
-      ],
+    return SelectionArea(
+      child: ListView(
+        padding: const EdgeInsets.all(defaultSpacing),
+        children: [
+          ..._buildGeneralRows(context),
+          if (data is Socket) ..._buildSocketOverviewRows(context),
+          const PaddedDivider(
+            padding: EdgeInsets.only(bottom: denseRowSpacing),
+          ),
+          ..._buildTimingOverview(context),
+        ],
+      ),
     );
   }
 
@@ -532,7 +601,12 @@ class NetworkRequestOverviewView extends StatelessWidget {
       _buildRow(
         context: context,
         title: 'Status',
-        child: _valueText(data.status ?? '--'),
+        child: _valueText(
+          data.status ?? '--',
+          data.didFail
+              ? TextStyle(color: Theme.of(context).colorScheme.error)
+              : null,
+        ),
       ),
       const SizedBox(height: defaultSpacing),
       if (data.port != null) ...[
@@ -559,9 +633,10 @@ class NetworkRequestOverviewView extends StatelessWidget {
       _buildRow(
         context: context,
         title: 'Timing',
-        child: data is WebSocket
-            ? _buildSocketTimeGraph(context)
-            : _buildHttpTimeGraph(),
+        child:
+            data is Socket
+                ? _buildSocketTimeGraph(context)
+                : _buildHttpTimeGraph(),
       ),
       const SizedBox(height: denseSpacing),
       _buildRow(
@@ -570,7 +645,7 @@ class NetworkRequestOverviewView extends StatelessWidget {
         child: _valueText(data.durationDisplay),
       ),
       const SizedBox(height: defaultSpacing),
-      ...data is WebSocket
+      ...data is Socket
           ? _buildSocketTimingRows(context)
           : _buildHttpTimingRows(context),
       const SizedBox(height: defaultSpacing),
@@ -592,21 +667,14 @@ class NetworkRequestOverviewView extends StatelessWidget {
     ];
   }
 
-  Widget _buildTimingRow(
-    Color color,
-    String label,
-    Duration duration,
-  ) {
+  Widget _buildTimingRow(Color color, String label, Duration duration) {
     final flex =
         (duration.inMicroseconds / data.duration!.inMicroseconds * 100).round();
     return Flexible(
       flex: flex,
       child: DevToolsTooltip(
         message: '$label - ${durationText(duration)}',
-        child: Container(
-          height: _timingGraphHeight,
-          color: color,
-        ),
+        child: Container(height: _timingGraphHeight, color: color),
       ),
     );
   }
@@ -621,16 +689,12 @@ class NetworkRequestOverviewView extends StatelessWidget {
       );
     }
 
-    const _colors = [
-      searchMatchColor,
-      mainRasterColor,
-      mainAsyncColor,
-    ];
+    const colors = [searchMatchColor, mainRasterColor, mainAsyncColor];
 
-    var _colorIndex = 0;
-    Color _nextColor() {
-      final color = _colors[_colorIndex % _colors.length];
-      _colorIndex++;
+    var colorIndex = 0;
+    Color nextColor() {
+      final color = colors[colorIndex % colors.length];
+      colorIndex++;
       return color;
     }
 
@@ -639,22 +703,15 @@ class NetworkRequestOverviewView extends StatelessWidget {
     final timingWidgets = <Widget>[];
     for (final instant in data.instantEvents) {
       final duration = instant.timeRange!.duration;
-      timingWidgets.add(
-        _buildTimingRow(_nextColor(), instant.name, duration),
-      );
+      timingWidgets.add(_buildTimingRow(nextColor(), instant.name, duration));
     }
     final duration = Duration(
-      microseconds: data.endTimestamp!.microsecondsSinceEpoch -
-          data.instantEvents.last.timestampMicros -
-          data.timelineMicrosecondsSinceEpoch(0),
+      microseconds:
+          data.endTimestamp!.microsecondsSinceEpoch -
+          data.instantEvents.last.timestamp.microsecondsSinceEpoch,
     );
-    timingWidgets.add(
-      _buildTimingRow(_nextColor(), 'Response', duration),
-    );
-    return Row(
-      key: httpTimingGraphKey,
-      children: timingWidgets,
-    );
+    timingWidgets.add(_buildTimingRow(nextColor(), 'Response', duration));
+    return Row(key: httpTimingGraphKey, children: timingWidgets);
   }
 
   // TODO(kenz): add a "waterfall" like visualization with the same colors that
@@ -693,12 +750,12 @@ class NetworkRequestOverviewView extends StatelessWidget {
   }
 
   List<Widget> _buildSocketOverviewRows(BuildContext context) {
-    final socket = data as WebSocket;
+    final socket = data as Socket;
     return [
       _buildRow(
         context: context,
         title: 'Socket id',
-        child: _valueText('${socket.id}'),
+        child: _valueText(socket.id),
       ),
       const SizedBox(height: defaultSpacing),
       _buildRow(
@@ -731,24 +788,26 @@ class NetworkRequestOverviewView extends StatelessWidget {
   }
 
   List<Widget> _buildSocketTimingRows(BuildContext context) {
-    final data = this.data as WebSocket;
+    final data = this.data as Socket;
     final lastReadTimestamp = data.lastReadTimestamp;
     final lastWriteTimestamp = data.lastWriteTimestamp;
     return [
       _buildRow(
         context: context,
         title: 'Last read time',
-        child: lastReadTimestamp != null
-            ? _valueText(formatDateTime(lastReadTimestamp))
-            : _valueText('--'),
+        child:
+            lastReadTimestamp != null
+                ? _valueText(formatDateTime(lastReadTimestamp))
+                : _valueText('--'),
       ),
       const SizedBox(height: defaultSpacing),
       _buildRow(
         context: context,
         title: 'Last write time',
-        child: lastWriteTimestamp != null
-            ? _valueText(formatDateTime(lastWriteTimestamp))
-            : _valueText('--'),
+        child:
+            lastWriteTimestamp != null
+                ? _valueText(formatDateTime(lastWriteTimestamp))
+                : _valueText('--'),
       ),
     ];
   }
@@ -761,24 +820,19 @@ class NetworkRequestOverviewView extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
+        SizedBox(
           width: _keyWidth,
-          child: SelectableText(
+          child: Text(
             title.isEmpty ? '' : '$title: ',
-            style: Theme.of(context).textTheme.titleSmall,
+            style: Theme.of(context).textTheme.titleMedium,
           ),
         ),
-        Expanded(
-          child: child,
-        ),
+        Expanded(child: child),
       ],
     );
   }
 
-  Widget _valueText(String value) {
-    return SelectableText(
-      value,
-      minLines: 1,
-    );
+  Widget _valueText(String value, [TextStyle? style]) {
+    return Text(style: style, value);
   }
 }

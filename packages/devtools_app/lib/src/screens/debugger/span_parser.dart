@@ -1,6 +1,6 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:collection';
 import 'dart:convert';
@@ -17,8 +17,11 @@ abstract class SpanParser {
     final scopeStack = ScopeStack();
     final scanner = LineScanner(src);
     while (!scanner.isDone) {
-      final foundMatch =
-          grammar.topLevelMatcher.scan(grammar, scanner, scopeStack);
+      final foundMatch = grammar.topLevelMatcher.scan(
+        grammar,
+        scanner,
+        scopeStack,
+      );
       if (!foundMatch && !scanner.isDone) {
         // Found no match, move forward by a character and try again.
         scanner.readChar();
@@ -43,7 +46,7 @@ class Grammar {
     return Grammar._(
       name: json['name'] as String,
       scopeName: json['scopeName'] as String,
-      topLevelMatcher: _Matcher.parse(json),
+      topLevelMatcher: GrammarMatcher.fromJson(json),
       repository: Repository.build(json),
     );
   }
@@ -59,7 +62,7 @@ class Grammar {
 
   final String? scopeName;
 
-  final _Matcher topLevelMatcher;
+  final GrammarMatcher topLevelMatcher;
 
   final Repository repository;
 
@@ -80,8 +83,8 @@ class ScopeSpan {
     required this.scopes,
     required ScopeStackLocation startLocation,
     required ScopeStackLocation endLocation,
-  })  : _startLocation = startLocation,
-        _endLocation = endLocation;
+  }) : _startLocation = startLocation,
+       _endLocation = endLocation;
 
   ScopeStackLocation get startLocation => _startLocation;
   ScopeStackLocation get endLocation => _endLocation;
@@ -162,17 +165,18 @@ class ScopeSpan {
 /// using the 'includes' keyword.
 class Repository {
   Repository.build(Map<String, Object?> grammarJson) {
-    final repositoryJson = (grammarJson['repository'] as Map<String, Object?>?)
-        ?.cast<String, Map<String, Object?>>();
+    final repositoryJson =
+        (grammarJson['repository'] as Map<String, Object?>?)
+            ?.cast<String, Map<String, Object?>>();
     if (repositoryJson == null) {
       return;
     }
     for (final subRepo in repositoryJson.keys) {
-      matchers[subRepo] = _Matcher.parse(repositoryJson[subRepo]!);
+      matchers[subRepo] = GrammarMatcher.fromJson(repositoryJson[subRepo]!);
     }
   }
 
-  final matchers = <String?, _Matcher>{};
+  final matchers = <String?, GrammarMatcher>{};
 
   Map<String, Object?> toJson() {
     return {
@@ -182,8 +186,8 @@ class Repository {
   }
 }
 
-abstract class _Matcher {
-  factory _Matcher.parse(Map<String, Object?> json) {
+abstract class GrammarMatcher {
+  factory GrammarMatcher.fromJson(Map<String, Object?> json) {
     if (_IncludeMatcher.isType(json)) {
       return _IncludeMatcher(json['include'] as String);
     } else if (_SimpleMatcher.isType(json)) {
@@ -196,7 +200,7 @@ abstract class _Matcher {
     throw StateError('Unknown matcher type: $json');
   }
 
-  _Matcher._(Map<String, Object?> json) : name = json['name'] as String?;
+  GrammarMatcher._(Map<String, Object?> json) : name = json['name'] as String?;
 
   final String? name;
 
@@ -225,8 +229,9 @@ abstract class _Matcher {
         final startOffset = match.indexOf(captureText);
         final capture = captures[i.toString()] as Map<String, Object?>;
         final captureStartLocation = matchStartLocation.offset(startOffset);
-        final captureEndLocation =
-            captureStartLocation.offset(captureText.length);
+        final captureEndLocation = captureStartLocation.offset(
+          captureText.length,
+        );
         final captureName = capture['name'] as String?;
 
         scopeStack.push(captureName, captureStartLocation);
@@ -237,7 +242,9 @@ abstract class _Matcher {
             scanner.substring(0, captureEndLocation.position),
             position: captureStartLocation.position,
           );
-          _Matcher.parse(capture).scan(grammar, captureScanner, scopeStack);
+          GrammarMatcher.fromJson(
+            capture,
+          ).scan(grammar, captureScanner, scopeStack);
         }
 
         scopeStack.pop(captureName, captureEndLocation);
@@ -249,12 +256,13 @@ abstract class _Matcher {
 }
 
 /// A simple matcher which matches a single line.
-class _SimpleMatcher extends _Matcher {
-  _SimpleMatcher(Map<String, Object?> json)
-      : match = RegExp(json['match'] as String, multiLine: true),
-        captures = (json['captures'] as Map<String, Object?>?)
-            ?.cast<String, Map<String, Object?>>(),
-        super._(json);
+class _SimpleMatcher extends GrammarMatcher {
+  _SimpleMatcher(super.json)
+    : match = RegExp(json['match'] as String, multiLine: true),
+      captures =
+          (json['captures'] as Map<String, Object?>?)
+              ?.cast<String, Map<String, Object?>>(),
+      super._();
 
   static bool isType(Map<String, Object?> json) {
     return json.containsKey('match');
@@ -286,25 +294,27 @@ class _SimpleMatcher extends _Matcher {
   }
 }
 
-class _MultilineMatcher extends _Matcher {
-  _MultilineMatcher(Map<String, Object?> json)
-      : begin = RegExp(json['begin'] as String, multiLine: true),
-        beginCaptures = json['beginCaptures'] as Map<String, Object?>?,
-        contentName = json['contentName'] as String?,
-        end = json['end'] == null
-            ? null
-            : RegExp(json['end'] as String, multiLine: true),
-        endCaptures = json['endCaptures'] as Map<String, Object?>?,
-        captures = json['captures'] as Map<String, Object?>?,
-        whileCond = json['while'] == null
-            ? null
-            : RegExp(json['while'] as String, multiLine: true),
-        patterns = (json['patterns'] as List<Object?>?)
-            ?.cast<Map<String, Object?>>()
-            .map((e) => _Matcher.parse(e))
-            .toList()
-            .cast<_Matcher>(),
-        super._(json);
+class _MultilineMatcher extends GrammarMatcher {
+  _MultilineMatcher(super.json)
+    : begin = RegExp(json['begin'] as String, multiLine: true),
+      beginCaptures = json['beginCaptures'] as Map<String, Object?>?,
+      contentName = json['contentName'] as String?,
+      end =
+          json['end'] == null
+              ? null
+              : RegExp(json['end'] as String, multiLine: true),
+      endCaptures = json['endCaptures'] as Map<String, Object?>?,
+      captures = json['captures'] as Map<String, Object?>?,
+      whileCond =
+          json['while'] == null
+              ? null
+              : RegExp(json['while'] as String, multiLine: true),
+      patterns =
+          (json['patterns'] as List<Object?>?)
+              ?.cast<Map<String, Object?>>()
+              .map((e) => GrammarMatcher.fromJson(e))
+              .toList(),
+      super._();
 
   static bool isType(Map<String, Object?> json) {
     return json.containsKey('begin') &&
@@ -352,7 +362,7 @@ class _MultilineMatcher extends _Matcher {
   /// be null if this property is provided.
   final Map<String, Object?>? captures;
 
-  final List<_Matcher>? patterns;
+  final List<GrammarMatcher>? patterns;
 
   void _scanBegin(Grammar grammar, LineScanner scanner, ScopeStack scopeStack) {
     final location = scanner.location;
@@ -381,7 +391,7 @@ class _MultilineMatcher extends _Matcher {
         break;
       }
       bool foundMatch = false;
-      for (final pattern in patterns ?? <_Matcher>[]) {
+      for (final pattern in patterns ?? <GrammarMatcher>[]) {
         if (pattern.scan(grammar, scanner, scopeStack)) {
           foundMatch = true;
           break;
@@ -400,7 +410,7 @@ class _MultilineMatcher extends _Matcher {
   ) {
     while (!scanner.isDone && end != null && !scanner.matches(end!)) {
       bool foundMatch = false;
-      for (final pattern in patterns ?? <_Matcher>[]) {
+      for (final pattern in patterns ?? <GrammarMatcher>[]) {
         if (pattern.scan(grammar, scanner, scopeStack)) {
           foundMatch = true;
           break;
@@ -416,7 +426,7 @@ class _MultilineMatcher extends _Matcher {
   void _scanEnd(Grammar grammar, LineScanner scanner, ScopeStack scopeStack) {
     final location = scanner.location;
     if (end != null && !scanner.scan(end!)) {
-      return null;
+      return;
     }
     _processCaptureHelper(grammar, scanner, scopeStack, endCaptures, location);
   }
@@ -482,11 +492,7 @@ class _MultilineMatcher extends _Matcher {
       }
 
       // Now, split any spans produced whileContentBeginMarker by `whileCond`.
-      scopeStack.splitFromMarker(
-        scanner,
-        whileContentBeginMarker,
-        whileCond!,
-      );
+      scopeStack.splitFromMarker(scanner, whileContentBeginMarker, whileCond!);
     } else {
       throw StateError(
         "One of 'end' or 'while' must be provided for rule: $name",
@@ -497,7 +503,7 @@ class _MultilineMatcher extends _Matcher {
   }
 
   void _skipLine(LineScanner scanner) {
-    scanner.scan(RegExp('.*\n'));
+    scanner.scan(RegExp('.*\r?\n'));
   }
 
   @override
@@ -515,20 +521,20 @@ class _MultilineMatcher extends _Matcher {
   }
 }
 
-class _PatternMatcher extends _Matcher {
-  _PatternMatcher(Map<String, Object?> json)
-      : patterns = (json['patterns'] as List<Object?>?)
-            ?.cast<Map<String, Object?>>()
-            .map((e) => _Matcher.parse(e))
-            .toList()
-            .cast<_Matcher>(),
-        super._(json);
+class _PatternMatcher extends GrammarMatcher {
+  _PatternMatcher(super.json)
+    : patterns =
+          (json['patterns'] as List<Object?>?)
+              ?.cast<Map<String, Object?>>()
+              .map((e) => GrammarMatcher.fromJson(e))
+              .toList(),
+      super._();
 
   static bool isType(Map<String, Object?> json) {
     return json.containsKey('patterns');
   }
 
-  final List<_Matcher>? patterns;
+  final List<GrammarMatcher>? patterns;
 
   @override
   bool scan(Grammar grammar, LineScanner scanner, ScopeStack scopeStack) {
@@ -551,13 +557,11 @@ class _PatternMatcher extends _Matcher {
   }
 }
 
-/// A [_Matcher] that corresponds to an `include` rule referenced in a
+/// A [GrammarMatcher] that corresponds to an `include` rule referenced in a
 /// `patterns` array. Allows for executing rules defined within a
 /// [Repository].
-class _IncludeMatcher extends _Matcher {
-  _IncludeMatcher(String include)
-      : include = include.substring(1),
-        super._({});
+class _IncludeMatcher extends GrammarMatcher {
+  _IncludeMatcher(String include) : include = include.substring(1), super._({});
 
   final String include;
 
@@ -576,9 +580,7 @@ class _IncludeMatcher extends _Matcher {
 
   @override
   Map<String, Object?> toJson() {
-    return {
-      'include': include,
-    };
+    return {'include': include};
   }
 }
 
@@ -606,7 +608,7 @@ class ScopeStack {
     pop(scope, end);
   }
 
-  /// Pushes a new scope onto the stack starting at [start].
+  /// Pushes a new scope onto the stack starting at [location].
   void push(String? scope, ScopeStackLocation location) {
     if (scope == null) return;
 
@@ -633,7 +635,7 @@ class ScopeStack {
   /// Pops the last scope off the stack, producing a token if necessary up until
   /// [end].
   void pop(String? scope, ScopeStackLocation end) {
-    if (scope == null) return null;
+    if (scope == null) return;
     assert(stack.isNotEmpty);
 
     final scopes = stack.map((item) => item.scope).toSet();
@@ -674,8 +676,9 @@ class ScopeStack {
     _nextLocation = begin.location;
 
     // Add the split spans individually.
-    for (final span in spansToSplit
-        .expand((spanToSplit) => spanToSplit.split(scanner, condition))) {
+    for (final span in spansToSplit.expand(
+      (spanToSplit) => spanToSplit.split(scanner, condition),
+    )) {
       // To handler spans with multiple scopes, we need to push each scope, and
       // then pop each scope. We cannot use `add`.
       for (final scope in span.scopes) {
@@ -687,10 +690,7 @@ class ScopeStack {
     }
   }
 
-  void _produceSpan(
-    Set<String> scopes, {
-    required ScopeStackLocation end,
-  }) {
+  void _produceSpan(Set<String> scopes, {required ScopeStackLocation end}) {
     // Don't produce zero-width spans.
     if (end.position == _nextLocation.position) return;
 
@@ -734,10 +734,7 @@ class ScopeStackItem {
 ///
 /// Used for back-tracking when handling nested multiline tokens.
 class ScopeStackMarker {
-  ScopeStackMarker({
-    required this.spanIndex,
-    required this.location,
-  });
+  ScopeStackMarker({required this.spanIndex, required this.location});
 
   final int spanIndex;
   final ScopeStackLocation location;

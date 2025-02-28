@@ -1,6 +1,6 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'package:flutter/material.dart';
 
@@ -12,6 +12,7 @@ import 'vm_object_model.dart';
 /// related to script objects in the Dart VM.
 class VmScriptDisplay extends StatelessWidget {
   const VmScriptDisplay({
+    super.key,
     required this.controller,
     required this.script,
   });
@@ -35,24 +36,16 @@ class VmScriptDisplay extends StatelessWidget {
   }
 
   /// Generates a list of key-value pairs (map entries) containing the general
-  /// VM information of the Script object [widget.script].
-  List<MapEntry<String, WidgetBuilder>> _scriptDataRows(
-    ScriptObject field,
-  ) {
+  /// VM information of the Script object `widget.script`.
+  List<MapEntry<String, WidgetBuilder>> _scriptDataRows(ScriptObject field) {
     return [
-      ...vmObjectGeneralDataRows(
-        controller,
-        field,
-      ),
+      ...vmObjectGeneralDataRows(controller, field),
       serviceObjectLinkBuilderMapEntry(
         controller: controller,
         key: 'URI',
         object: script.obj,
       ),
-      selectableTextBuilderMapEntry(
-        'Load time',
-        script.loadTime.toString(),
-      ),
+      selectableTextBuilderMapEntry('Load time', script.loadTime.toString()),
     ];
   }
 }

@@ -1,16 +1,17 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/foundation.dart';
 import 'package:vm_service/vm_service.dart';
 
 import '../../shared/config_specific/logger/allowed_error.dart';
+import '../../shared/framework/screen_controllers.dart';
 import '../../shared/globals.dart';
-import '../../shared/offline_mode.dart';
-import '../../shared/primitives/auto_dispose.dart';
+import '../../shared/offline/offline_data.dart';
 import '../../shared/primitives/utils.dart';
 import 'cpu_profile_model.dart';
 import 'cpu_profile_service.dart';
@@ -18,17 +19,29 @@ import 'cpu_profiler_controller.dart';
 import 'profiler_screen.dart';
 import 'sampling_rate.dart';
 
-class ProfilerScreenController extends DisposableController
+/// Screen controller for the Cpu Profiler screen.
+///
+/// This controller can be accessed from anywhere in DevTools, as long as it was
+/// first registered, by
+/// calling `screenControllers.lookup<ProfilerScreenController>()`.
+///
+/// The controller lifecycle is managed by the [ScreenControllers] class. The
+/// `init` method is called lazily upon the first controller access from
+/// `screenControllers`. The `dispose` method is called by `screenControllers`
+/// when DevTools is destroying a set of DevTools screen controllers.
+class ProfilerScreenController extends DevToolsScreenController
     with
         AutoDisposeControllerMixin,
         OfflineScreenControllerMixin<CpuProfileData> {
-  ProfilerScreenController() {
-    unawaited(_init());
-  }
-
   final _initialized = Completer<void>();
 
   Future<void> get initialized => _initialized.future;
+
+  @override
+  void init() {
+    super.init();
+    unawaited(_init());
+  }
 
   Future<void> _init() async {
     await _initHelper();
@@ -36,21 +49,30 @@ class ProfilerScreenController extends DisposableController
   }
 
   Future<void> _initHelper() async {
-    initReviewHistoryOnDisconnectListener();
-    if (!offlineController.offlineMode.value) {
+    if (!offlineDataController.showingOfflineData.value) {
       await allowedError(
-        serviceManager.service!.setProfilePeriod(mediumProfilePeriod),
+        serviceConnection.serviceManager.service!.setProfilePeriod(
+          mediumProfilePeriod,
+        ),
         logError: false,
       );
 
-      _currentIsolate = serviceManager.isolateManager.selectedIsolate.value;
-      addAutoDisposeListener(serviceManager.isolateManager.selectedIsolate, () {
-        final selectedIsolate =
-            serviceManager.isolateManager.selectedIsolate.value;
-        if (selectedIsolate != null) {
-          switchToIsolate(selectedIsolate);
-        }
-      });
+      _currentIsolate =
+          serviceConnection.serviceManager.isolateManager.selectedIsolate.value;
+      addAutoDisposeListener(
+        serviceConnection.serviceManager.isolateManager.selectedIsolate,
+        () {
+          final selectedIsolate =
+              serviceConnection
+                  .serviceManager
+                  .isolateManager
+                  .selectedIsolate
+                  .value;
+          if (selectedIsolate != null) {
+            switchToIsolate(selectedIsolate);
+          }
+        },
+      );
 
       addAutoDisposeListener(preferences.vmDeveloperModeEnabled, () async {
         if (preferences.vmDeveloperModeEnabled.value) {
@@ -64,8 +86,9 @@ class ProfilerScreenController extends DisposableController
           // need to default to the basic view of the profile.
           final userTagFilter = cpuProfilerController.userTagFilter.value;
           if (userTagFilter == CpuProfilerController.groupByVmTag) {
-            await cpuProfilerController
-                .loadDataWithTag(CpuProfilerController.userTagNone);
+            await cpuProfilerController.loadDataWithTag(
+              CpuProfilerController.userTagNone,
+            );
           }
         }
         // Always reset to the function view when the VM developer mode state
@@ -74,18 +97,24 @@ class ProfilerScreenController extends DisposableController
         cpuProfilerController.updateViewForType(CpuProfilerViewType.function);
       });
     } else {
-      final shouldLoadOfflineData =
-          offlineController.shouldLoadOfflineData(ProfilerScreen.id);
-      if (shouldLoadOfflineData) {
-        final profilerJson = Map<String, dynamic>.from(
-          offlineController.offlineDataJson[ProfilerScreen.id],
-        );
-        final offlineProfilerData = CpuProfileData.parse(profilerJson);
-        if (!offlineProfilerData.isEmpty) {
-          await loadOfflineData(offlineProfilerData);
-        }
-      }
+      await maybeLoadOfflineData(
+        ProfilerScreen.id,
+        createData: (json) => CpuProfileData.fromJson(json),
+        shouldLoad: (data) => !data.isEmpty,
+        loadData: _loadOfflineData,
+      );
     }
+  }
+
+  Future<void> _loadOfflineData(CpuProfileData data) async {
+    await cpuProfilerController.transformer.processData(
+      data,
+      processId: 'offline data processing',
+    );
+    cpuProfilerController.loadProcessedData(
+      CpuProfilePair(functionProfile: data, codeProfile: null),
+      storeAsUserTagNone: true,
+    );
   }
 
   final cpuProfilerController = CpuProfilerController();
@@ -137,25 +166,10 @@ class ProfilerScreenController extends DisposableController
   }
 
   @override
-  OfflineScreenData screenDataForExport() => OfflineScreenData(
-        screenId: ProfilerScreen.id,
-        data: cpuProfileData!.toJson,
-      );
-
-  @override
-  FutureOr<void> processOfflineData(CpuProfileData offlineData) async {
-    await cpuProfilerController.transformer.processData(
-      offlineData,
-      processId: 'offline data processing',
-    );
-    cpuProfilerController.loadProcessedData(
-      CpuProfilePair(
-        functionProfile: offlineData,
-        codeProfile: null,
-      ),
-      storeAsUserTagNone: true,
-    );
-  }
+  OfflineScreenData prepareOfflineScreenData() => OfflineScreenData(
+    screenId: ProfilerScreen.id,
+    data: cpuProfileData!.toJson(),
+  );
 
   Future<void> clear() async {
     await cpuProfilerController.clear();

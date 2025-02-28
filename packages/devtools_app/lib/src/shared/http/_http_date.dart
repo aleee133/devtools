@@ -5,20 +5,14 @@
 // This file was pulled from dart:io.
 
 // ignore_for_file: empty_statements
-// ignore_for_file: non_constant_identifier_names
-// ignore_for_file: prefer_const_declarations
 // ignore_for_file: prefer_final_locals
 // ignore_for_file: prefer_is_empty
 // ignore_for_file: prefer_single_quotes
-// ignore_for_file: slash_for_doc_comments
 // ignore_for_file: unnecessary_const
 // ignore_for_file: unnecessary_new
-// ignore_for_file: unused_catch_clause
-// ignore_for_file: unused_local_variable
-// ignore_for_file: prefer-moving-to-variable
 // ignore_for_file: avoid-throw-in-catch-block
 
-part of http;
+part of 'http.dart';
 
 // TODO(jacobr): cleanup this class with only static members.
 // ignore: avoid_classes_with_only_static_members
@@ -26,7 +20,7 @@ part of http;
 class HttpDate {
   // Parse a cookie date string.
   static DateTime _parseCookieDate(String date) {
-    const List monthsLowerCase = const [
+    const monthsLowerCase = const <String>[
       "jan",
       "feb",
       "mar",
@@ -90,7 +84,7 @@ class HttpDate {
       return int.parse(s.substring(0, index));
     }
 
-    var tokens = [];
+    var tokens = <String>[];
     while (!isEnd()) {
       while (!isEnd() && isDelimiter(date[position])) {
         position++;
@@ -110,7 +104,7 @@ class HttpDate {
     String? monthStr;
     String? yearStr;
 
-    for (var token in tokens) {
+    for (final token in tokens) {
       if (token.length < 1) continue;
       if (timeStr == null &&
           token.length >= 5 &&
@@ -139,7 +133,9 @@ class HttpDate {
     int year = toInt(yearStr!);
     if (year >= 70 && year <= 99) {
       year += 1900;
-    } else if (year >= 0 && year <= 69) year += 2000;
+    } else if (year >= 0 && year <= 69) {
+      year += 2000;
+    }
     if (year < 1601) error();
 
     int dayOfMonth = toInt(dayOfMonthStr!);

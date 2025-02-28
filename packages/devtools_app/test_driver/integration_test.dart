@@ -1,10 +1,11 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 // ignore_for_file: avoid_print
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:collection/collection.dart';
 import 'package:flutter_driver/flutter_driver.dart';
@@ -25,13 +26,13 @@ Future<void> main() async {
       List<int> screenshotBytes, [
       Map<String, Object?>? args,
     ]) async {
-      final bool shouldUpdateGoldens = args?['update_goldens'] == true;
+      final shouldUpdateGoldens = args?['update_goldens'] == true;
 
       // TODO(https://github.com/flutter/flutter/issues/118470): remove this.
       // We need this to ensure all golden image checks run. Without this
       // workaround, the flutter integration test framework will crash on the
       // failed expectation.
-      final bool lastScreenshot = args?['last_screenshot'] == true;
+      final lastScreenshot = args?['last_screenshot'] == true;
 
       final goldenFile = File('$_goldensDirectoryPath/$screenshotName.png');
 
@@ -40,7 +41,7 @@ Future<void> main() async {
           // Create the goldens directory if it does not exist.
           Directory(_goldensDirectoryPath).createSync();
         }
-        goldenFile.writeAsBytesSync(screenshotBytes);
+        goldenFile.writeAsBytesSync(screenshotBytes, flush: true);
         print('Golden image updated: $screenshotName.png');
         return true;
       }
@@ -80,8 +81,9 @@ Future<void> main() async {
         Directory(_goldensDirectoryPath).createSync();
         failuresDirectory.createSync();
 
-        File('$_failuresDirectoryPath/$screenshotName.png')
-            .writeAsBytesSync(screenshotBytes);
+        File(
+          '$_failuresDirectoryPath/$screenshotName.png',
+        ).writeAsBytesSync(screenshotBytes);
       }
 
       if (lastScreenshot &&
@@ -95,9 +97,9 @@ Future<void> main() async {
   );
 }
 
-double _percentDiff(List<int> goldenBytes, List<int> screenshotBytes) {
+double _percentDiff(Uint8List goldenBytes, List<int> screenshotBytes) {
   final goldenImage = decodeImage(goldenBytes);
-  final screenshotImage = decodeImage(screenshotBytes);
+  final screenshotImage = decodeImage(Uint8List.fromList(screenshotBytes));
   if (goldenImage == null || screenshotImage == null) {
     print('Cannot decode one or both of the golden images.');
     return _defaultDiffPercentage;

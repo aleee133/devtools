@@ -2,17 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'package:devtools_shared/devtools_shared.dart';
+import 'package:flutter/material.dart';
 import 'package:vm_service/vm_service.dart';
 
-import '../../shared/http/http_request_data.dart';
 import '../../shared/primitives/utils.dart';
 import '../../shared/ui/search.dart';
 
-abstract class NetworkRequest with SearchableDataMixin {
-  NetworkRequest(this._timelineMicrosBase);
-
-  final int _timelineMicrosBase;
-
+abstract class NetworkRequest
+    with ChangeNotifier, SearchableDataMixin, Serializable {
   String get method;
 
   String get uri;
@@ -40,17 +38,11 @@ abstract class NetworkRequest with SearchableDataMixin {
 
   String get durationDisplay {
     final duration = this.duration;
-    final text = duration != null
-        ? durationText(
-            duration,
-            unit: DurationDisplayUnit.milliseconds,
-          )
-        : 'Pending';
+    final text =
+        duration != null
+            ? durationText(duration, unit: DurationDisplayUnit.milliseconds)
+            : 'Pending';
     return 'Duration: $text';
-  }
-
-  int timelineMicrosecondsSinceEpoch(int micros) {
-    return _timelineMicrosBase + micros;
   }
 
   @override
@@ -62,7 +54,7 @@ abstract class NetworkRequest with SearchableDataMixin {
   String toString() => '$method $uri';
 
   @override
-  bool operator ==(Object? other) {
+  bool operator ==(Object other) {
     return other is NetworkRequest &&
         runtimeType == other.runtimeType &&
         startTimestamp == other.startTimestamp &&
@@ -80,20 +72,36 @@ abstract class NetworkRequest with SearchableDataMixin {
   }
 
   @override
-  int get hashCode => Object.hash(
-        method,
-        uri,
-        contentType,
-        type,
-        port,
-        startTimestamp,
-      );
+  int get hashCode =>
+      Object.hash(method, uri, contentType, type, port, startTimestamp);
 }
 
-class WebSocket extends NetworkRequest {
-  WebSocket(this._socket, int timelineMicrosBase) : super(timelineMicrosBase);
+class Socket extends NetworkRequest {
+  Socket(this._socket, this._timelineMicrosBase);
 
-  final SocketStatistic _socket;
+  factory Socket.fromJson(Map<String, Object?> json) {
+    return Socket(
+      SocketStatistic.parse(
+        json[SocketJsonKey.socket.name] as Map<String, Object?>,
+      )!,
+      json[SocketJsonKey.timelineMicrosBase.name] as int,
+    );
+  }
+
+  int _timelineMicrosBase;
+
+  SocketStatistic _socket;
+
+  int timelineMicrosecondsSinceEpoch(int micros) {
+    return _timelineMicrosBase + micros;
+  }
+
+  void update(Socket other) {
+    _socket = other._socket;
+    _timelineMicrosBase = other._timelineMicrosBase;
+    notifyListeners();
+  }
+
   @override
   String get id => _socket.id;
 
@@ -108,16 +116,16 @@ class WebSocket extends NetworkRequest {
 
   @override
   DateTime get startTimestamp => DateTime.fromMicrosecondsSinceEpoch(
-        timelineMicrosecondsSinceEpoch(_socket.startTime),
-      );
+    timelineMicrosecondsSinceEpoch(_socket.startTime),
+  );
 
   @override
   DateTime? get endTimestamp {
     final endTime = _socket.endTime;
     return endTime != null
         ? DateTime.fromMicrosecondsSinceEpoch(
-            timelineMicrosecondsSinceEpoch(endTime),
-          )
+          timelineMicrosecondsSinceEpoch(endTime),
+        )
         : null;
   }
 
@@ -125,8 +133,8 @@ class WebSocket extends NetworkRequest {
     final lastReadTime = _socket.lastReadTime;
     return lastReadTime != null
         ? DateTime.fromMicrosecondsSinceEpoch(
-            timelineMicrosecondsSinceEpoch(lastReadTime),
-          )
+          timelineMicrosecondsSinceEpoch(lastReadTime),
+        )
         : null;
   }
 
@@ -134,21 +142,21 @@ class WebSocket extends NetworkRequest {
     final lastWriteTime = _socket.lastWriteTime;
     return lastWriteTime != null
         ? DateTime.fromMicrosecondsSinceEpoch(
-            timelineMicrosecondsSinceEpoch(lastWriteTime),
-          )
+          timelineMicrosecondsSinceEpoch(lastWriteTime),
+        )
         : null;
   }
 
   @override
-  String get contentType => 'websocket';
+  String get contentType => 'socket';
 
   @override
-  String get type => 'ws';
+  String get type => _socket.socketType;
 
   String get socketType => _socket.socketType;
 
   @override
-  String get uri => _socket.address;
+  String get uri => '${_socket.address}:$port';
 
   @override
   int get port => _socket.port;
@@ -161,45 +169,67 @@ class WebSocket extends NetworkRequest {
 
   int get writeBytes => _socket.writeBytes;
 
-  // TODO(kenz): is this always GET? Chrome DevTools shows GET in the response
-  // headers for web socket traffic.
   @override
-  String get method => 'GET';
+  String get method => 'SOCKET';
 
-  // TODO(kenz): is this always 101? Chrome DevTools lists "101" for WS status
-  // codes with a tooltip of "101 Web Socket Protocol Handshake"
   @override
-  String get status => '101';
+  String get status => _socket.endTime == null ? 'Open' : 'Closed';
 
   @override
   bool get inProgress => false;
 
   @override
-  bool operator ==(Object? other) => other is WebSocket && id == other.id;
+  bool operator ==(Object other) => other is Socket && id == other.id;
 
   @override
   int get hashCode => id.hashCode;
+
+  SocketStatistic get socketData => _socket;
+
+  @override
+  Map<String, Object?> toJson() {
+    return {
+      SocketJsonKey.timelineMicrosBase.name: _timelineMicrosBase,
+      SocketJsonKey.socket.name: _socket.toJson(),
+    };
+  }
 }
 
-/// Contains all state relevant to completed and in-progress network requests.
-class NetworkRequests {
-  NetworkRequests({
-    this.requests = const [],
-    this.invalidHttpRequests = const [],
-  });
+extension on SocketStatistic {
+  Map<String, Object?> toJson() {
+    return {
+      SocketJsonKey.id.name: id,
+      SocketJsonKey.startTime.name: startTime,
+      SocketJsonKey.endTime.name: endTime,
+      //TODO verify if these timings are in correct format
+      SocketJsonKey.lastReadTime.name: lastReadTime,
+      SocketJsonKey.lastWriteTime.name: lastWriteTime,
+      SocketJsonKey.socketType.name: socketType,
+      SocketJsonKey.address.name: address,
+      SocketJsonKey.port.name: port,
+      SocketJsonKey.readBytes.name: readBytes,
+      SocketJsonKey.writeBytes.name: writeBytes,
+    };
+  }
+}
 
-  /// A list of network requests.
-  ///
-  /// Individual requests in this list can be either completed or in-progress.
-  List<NetworkRequest> requests;
+enum SocketJsonKey {
+  id,
+  startTime,
+  endTime,
+  lastReadTime,
+  lastWriteTime,
+  socketType,
+  address,
+  port,
+  readBytes,
+  writeBytes,
+  timelineMicrosBase,
+  socket,
+}
 
-  /// A list of invalid HTTP requests received.
-  ///
-  /// These are requests that have completed but do not contain all the required
-  /// information to display normally in the UI.
-  List<DartIOHttpRequestData> invalidHttpRequests;
-
-  void clear() {
-    requests.clear();
+extension SocketExtension on List<Socket> {
+  List<SocketStatistic> get mapToSocketStatistics {
+    return map((socket) => socket._socket).toList();
   }
 }

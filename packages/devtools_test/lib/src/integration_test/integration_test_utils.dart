@@ -1,24 +1,31 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:convert';
 import 'dart:ui' as ui;
 
 import 'package:devtools_app/devtools_app.dart';
 import 'package:devtools_app/main.dart' as app;
+import 'package:devtools_app_shared/ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
-import 'test_data/performance.dart';
+import '../helpers/actions.dart';
+import '../helpers/utils.dart';
+import '../test_data/sample_data.dart';
 
-const safePumpDuration = Duration(seconds: 3);
-const longPumpDuration = Duration(seconds: 6);
-
-/// Required to have multiple test cases in this file.
+/// Required to have multiple test cases in a file.
 Future<void> resetHistory() async {
-  await (ui.PlatformDispatcher.instance.views.single as dynamic).resetHistory();
+  await (ui.PlatformDispatcher.instance.views.single
+          // ignore: avoid-dynamic, necessary here.
+          as dynamic /* EngineFlutterWindow */ )
+      // This dynamic call is necessary as `EngineFlutterWindow` is declared in
+      // the web-specific implementation of the Flutter Engine, at
+      // `lib/web_ui/lib/src/engine/window.dart` in the Flutter engine
+      // repository.
+      .resetHistory();
 }
 
 Future<void> pumpAndConnectDevTools(
@@ -26,20 +33,17 @@ Future<void> pumpAndConnectDevTools(
   TestApp testApp,
 ) async {
   await pumpDevTools(tester);
-  expect(find.byType(LandingScreenBody), findsOneWidget);
-  expect(find.text('No client connection'), findsOneWidget);
-
-  logStatus('verify that we can connect to an app');
   await connectToTestApp(tester, testApp);
-  expect(find.byType(LandingScreenBody), findsNothing);
-  expect(find.text('No client connection'), findsNothing);
+}
 
+Future<void> closeReleaseNotesViewer(WidgetTester tester) async {
   // If the release notes viewer is open, close it.
-  final releaseNotesView =
-      tester.widget<ReleaseNotes>(find.byType(ReleaseNotes));
-  if (releaseNotesView.releaseNotesController.releaseNotesVisible.value) {
+  final releaseNotesView = tester.widget<ReleaseNotesViewer>(
+    find.byType(ReleaseNotesViewer),
+  );
+  if (releaseNotesView.controller.isVisible.value) {
     final closeReleaseNotesButton = find.descendant(
-      of: find.byType(ReleaseNotes),
+      of: find.byType(ReleaseNotesViewer),
       matching: find.byType(IconButton),
     );
     expect(closeReleaseNotesButton, findsOneWidget);
@@ -47,13 +51,19 @@ Future<void> pumpAndConnectDevTools(
   }
 }
 
-Future<void> switchToScreen(WidgetTester tester, ScreenMetaData screen) async {
-  final screenTitle = screen.title;
-  logStatus('switching to $screenTitle screen');
-  await tester.tap(find.widgetWithText(Tab, screenTitle));
-  // We use pump here instead of pumpAndSettle because pumpAndSettle will
-  // never complete if there is an animation (e.g. a progress indicator).
-  await tester.pump(safePumpDuration);
+void _verifyFooterColor(WidgetTester tester, Color? expectedColor) {
+  final Container statusLineContainer = tester.widget(
+    find
+        .descendant(
+          of: find.byType(StatusLine),
+          matching: find.byType(Container),
+        )
+        .first,
+  );
+  expect(
+    (statusLineContainer.decoration! as BoxDecoration).color,
+    expectedColor,
+  );
 }
 
 Future<void> pumpDevTools(WidgetTester tester) async {
@@ -62,17 +72,24 @@ Future<void> pumpDevTools(WidgetTester tester) async {
   // Error when reading 'org-dartlang-app:/test_infra/shared.dart': File not found
   const shouldEnableExperiments = bool.fromEnvironment('enable_experiments');
   app.externalRunDevTools(
+    integrationTestMode: true,
     // ignore: avoid_redundant_argument_values, by design
     shouldEnableExperiments: shouldEnableExperiments,
-    sampleData: _sampleData,
+    sampleData: sampleData,
   );
 
   // Await a delay to ensure the widget tree has loaded.
-  await tester.pumpAndSettle(longPumpDuration);
+  await tester.pumpAndSettle(veryLongPumpDuration);
   expect(find.byType(DevToolsApp), findsOneWidget);
+
+  await closeReleaseNotesViewer(tester);
 }
 
 Future<void> connectToTestApp(WidgetTester tester, TestApp testApp) async {
+  logStatus('connecting to test app');
+  expect(find.byType(ConnectInput), findsOneWidget);
+  expect(find.byType(ConnectedAppSummary), findsNothing);
+  _verifyFooterColor(tester, null);
   final textFieldFinder = find.byType(TextField);
   // TODO(https://github.com/flutter/flutter/issues/89749): use
   // `tester.enterText` once this issue is fixed.
@@ -81,20 +98,29 @@ Future<void> connectToTestApp(WidgetTester tester, TestApp testApp) async {
   await tester.tap(
     find.ancestor(
       of: find.text('Connect'),
-      matching: find.byType(ElevatedButton),
+      matching: find.byType(DevToolsButton),
     ),
   );
-  await tester.pumpAndSettle(safePumpDuration);
+  await tester.pumpAndSettle(longPumpDuration);
+  expect(find.byType(ConnectInput), findsNothing);
+  expect(find.byType(ConnectedAppSummary), findsOneWidget);
+  _verifyFooterColor(tester, darkColorScheme.primary);
 }
 
-void logStatus(String log) {
-  print('TEST STATUS: $log');
+Future<void> disconnectFromTestApp(WidgetTester tester) async {
+  logStatus('disconnect from test app');
+  await tester.tap(
+    await findTab(tester, icon: null, iconAsset: ScreenMetaData.home.iconAsset),
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(find.byType(ConnectToNewAppButton));
+  await tester.pump(safePumpDuration);
 }
 
 class TestApp {
   TestApp._({required this.vmServiceUri});
 
-  factory TestApp.parse(Map<String, Object> json) {
+  factory TestApp.fromJson(Map<String, Object> json) {
     final serviceUri = json[serviceUriKey] as String?;
     if (serviceUri == null) {
       throw Exception('Cannot create a TestApp with a null service uri.');
@@ -104,9 +130,8 @@ class TestApp {
 
   factory TestApp.fromEnvironment() {
     const testArgs = String.fromEnvironment('test_args');
-    final Map<String, Object> argsMap =
-        jsonDecode(testArgs).cast<String, Object>();
-    return TestApp.parse(argsMap);
+    final argsMap = (jsonDecode(testArgs) as Map).cast<String, Object>();
+    return TestApp.fromJson(argsMap);
   }
 
   static const serviceUriKey = 'service_uri';
@@ -122,30 +147,8 @@ Future<void> verifyScreenshot(
 }) async {
   const updateGoldens = bool.fromEnvironment('update_goldens');
   logStatus('verify $screenshotName screenshot');
-  await binding.takeScreenshot(
-    screenshotName,
-    {
-      'update_goldens': updateGoldens,
-      'last_screenshot': lastScreenshot,
-    },
-  );
+  await binding.takeScreenshot(screenshotName, {
+    'update_goldens': updateGoldens,
+    'last_screenshot': lastScreenshot,
+  });
 }
-
-Future<void> loadSampleData(WidgetTester tester, String fileName) async {
-  await tester.tap(find.byType(DropdownButton<DevToolsJsonFile>));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text(fileName).last);
-  await tester.pump(safePumpDuration);
-  await tester.tap(find.text('Load sample data'));
-  await tester.pump(longPumpDuration);
-}
-
-const performanceFileName = 'performance_data.json';
-
-final _sampleData = <DevToolsJsonFile>[
-  DevToolsJsonFile(
-    name: performanceFileName,
-    lastModifiedTime: DateTime.now(),
-    data: jsonDecode(jsonEncode(samplePerformanceData)),
-  ),
-];

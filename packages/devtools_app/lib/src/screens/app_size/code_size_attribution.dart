@@ -1,25 +1,25 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
+import 'package:devtools_app_shared/ui.dart';
 import 'package:flutter/material.dart';
 import 'package:vm_snapshot_analysis/precompiler_trace.dart';
 import 'package:vm_snapshot_analysis/program_info.dart';
 
-import '../../shared/common_widgets.dart';
 import '../../shared/primitives/trees.dart';
 import '../../shared/primitives/utils.dart';
 import '../../shared/table/table.dart';
 import '../../shared/table/table_data.dart';
-import '../../shared/theme.dart';
+import '../../shared/ui/common_widgets.dart';
 
 class CallGraphWithDominators extends StatefulWidget {
-  const CallGraphWithDominators({required this.callGraphRoot});
+  const CallGraphWithDominators({super.key, required this.callGraphRoot});
 
   final CallGraphNode callGraphRoot;
 
   @override
-  _CallGraphWithDominatorsState createState() =>
+  State<CallGraphWithDominators> createState() =>
       _CallGraphWithDominatorsState();
 }
 
@@ -31,16 +31,18 @@ class _CallGraphWithDominatorsState extends State<CallGraphWithDominators> {
   @override
   void initState() {
     super.initState();
-    dominatorTreeRoot =
-        DominatorTreeNode.from(widget.callGraphRoot.dominatorRoot);
+    dominatorTreeRoot = DominatorTreeNode.from(
+      widget.callGraphRoot.dominatorRoot,
+    );
   }
 
   @override
   void didUpdateWidget(covariant CallGraphWithDominators oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.callGraphRoot != widget.callGraphRoot) {
-      dominatorTreeRoot =
-          DominatorTreeNode.from(widget.callGraphRoot.dominatorRoot);
+      dominatorTreeRoot = DominatorTreeNode.from(
+        widget.callGraphRoot.dominatorRoot,
+      );
     }
   }
 
@@ -62,12 +64,13 @@ class _CallGraphWithDominatorsState extends State<CallGraphWithDominators> {
           ],
         ),
         Expanded(
-          child: showCallGraph
-              ? CallGraphView(node: widget.callGraphRoot)
-              : DominatorTree(
-                  dominatorTreeRoot: dominatorTreeRoot,
-                  selectedNode: widget.callGraphRoot,
-                ),
+          child:
+              showCallGraph
+                  ? CallGraphView(node: widget.callGraphRoot)
+                  : DominatorTree(
+                    dominatorTreeRoot: dominatorTreeRoot,
+                    selectedNode: widget.callGraphRoot,
+                  ),
         ),
       ],
     );
@@ -81,12 +84,12 @@ class _CallGraphWithDominatorsState extends State<CallGraphWithDominators> {
 }
 
 class CallGraphView extends StatefulWidget {
-  const CallGraphView({required this.node});
+  const CallGraphView({super.key, required this.node});
 
   final CallGraphNode node;
 
   @override
-  _CallGraphViewState createState() => _CallGraphViewState();
+  State<CallGraphView> createState() => _CallGraphViewState();
 }
 
 class _CallGraphViewState extends State<CallGraphView> {
@@ -225,9 +228,10 @@ class _CallGraphTable extends StatelessWidget {
   Widget build(BuildContext context) {
     return FlatTable<CallGraphNode>(
       keyFactory: (CallGraphNode node) => ValueKey<CallGraphNode>(node),
-      data: tableType == _CallGraphTableType.from
-          ? selectedNode.pred
-          : selectedNode.succ,
+      data:
+          tableType == _CallGraphTableType.from
+              ? selectedNode.pred
+              : selectedNode.succ,
       dataKey: tableType.dataKey,
       columns: [tableColumn],
       onItemSelected: onNodeSelected,
@@ -259,6 +263,7 @@ class ToColumn extends ColumnData<CallGraphNode> {
 
 class DominatorTree extends StatelessWidget {
   DominatorTree({
+    super.key,
     required this.dominatorTreeRoot,
     required this.selectedNode,
   });
@@ -311,7 +316,9 @@ class _PackageColumn extends TreeColumnData<DominatorTreeNode> {
 extension CallGraphNodeDisplay on CallGraphNode {
   String get display {
     final displayText =
-        data is ProgramInfoNode ? data.qualifiedName : data.toString();
+        data is ProgramInfoNode
+            ? (data as ProgramInfoNode).qualifiedName
+            : data.toString();
     if (displayText == '@shared') {
       // Special case '@shared' because this is the name of the call graph root,
       // and '@root' has a more intuitive meaning.
@@ -334,7 +341,7 @@ class DominatorTreeNode extends TreeNode<DominatorTreeNode> {
 
   factory DominatorTreeNode.from(CallGraphNode cgNode) {
     final domNode = DominatorTreeNode._(cgNode);
-    for (var dominated in cgNode.dominated) {
+    for (final dominated in cgNode.dominated) {
       domNode.addChild(DominatorTreeNode.from(dominated));
     }
     return domNode;

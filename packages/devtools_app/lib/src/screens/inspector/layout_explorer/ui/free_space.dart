@@ -1,10 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
+import 'package:devtools_app_shared/ui.dart';
 import 'package:flutter/material.dart';
 
-import '../../../../shared/common_widgets.dart';
 import '../../../../shared/primitives/utils.dart';
 import '../../inspector_data_models.dart';
 import 'arrow.dart';
@@ -12,10 +12,7 @@ import 'dimension.dart';
 import 'theme.dart';
 
 class FreeSpaceVisualizerWidget extends StatelessWidget {
-  const FreeSpaceVisualizerWidget(
-    this.renderProperties, {
-    Key? key,
-  }) : super(key: key);
+  const FreeSpaceVisualizerWidget(this.renderProperties, {super.key});
 
   final RenderProperties renderProperties;
 
@@ -26,15 +23,13 @@ class FreeSpaceVisualizerWidget extends StatelessWidget {
         'h=${toStringAsFixed(renderProperties.realHeight)}';
     final widthDescription = 'w=${toStringAsFixed(renderProperties.realWidth)}';
     final showWidth =
-        renderProperties.realWidth != renderProperties.layoutProperties?.width;
+        renderProperties.realWidth != renderProperties.layoutProperties.width;
     final widthWidget = Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Flexible(
           child: dimensionDescription(
-            TextSpan(
-              text: widthDescription,
-            ),
+            TextSpan(text: widthDescription),
             false,
             colorScheme,
           ),
@@ -49,7 +44,7 @@ class FreeSpaceVisualizerWidget extends StatelessWidget {
         ),
       ],
     );
-    final heightWidget = Container(
+    final heightWidget = SizedBox(
       width: heightOnlyIndicatorSize,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -76,7 +71,7 @@ class FreeSpaceVisualizerWidget extends StatelessWidget {
     return Positioned(
       top: renderProperties.offset.dy,
       left: renderProperties.offset.dx,
-      child: Container(
+      child: SizedBox(
         width: renderProperties.width,
         height: renderProperties.height,
         child: DevToolsTooltip(
@@ -92,8 +87,8 @@ class PaddingVisualizerWidget extends StatelessWidget {
   const PaddingVisualizerWidget(
     this.renderProperties, {
     required this.horizontal,
-    Key? key,
-  }) : super(key: key);
+    super.key,
+  });
 
   final RenderProperties renderProperties;
   final bool horizontal;
@@ -109,9 +104,7 @@ class PaddingVisualizerWidget extends StatelessWidget {
       children: [
         Flexible(
           child: dimensionDescription(
-            TextSpan(
-              text: widthDescription,
-            ),
+            TextSpan(text: widthDescription),
             false,
             colorScheme,
           ),
@@ -126,7 +119,7 @@ class PaddingVisualizerWidget extends StatelessWidget {
         ),
       ],
     );
-    final heightWidget = Container(
+    final heightWidget = SizedBox(
       width: heightOnlyIndicatorSize,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -153,7 +146,7 @@ class PaddingVisualizerWidget extends StatelessWidget {
     return Positioned(
       top: renderProperties.offset.dy,
       left: renderProperties.offset.dx,
-      child: Container(
+      child: SizedBox(
         width: safePositiveDouble(renderProperties.width),
         height: safePositiveDouble(renderProperties.height),
         child: horizontal ? widthWidget : heightWidget,

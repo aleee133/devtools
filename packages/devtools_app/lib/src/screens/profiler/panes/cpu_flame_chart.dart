@@ -1,6 +1,6 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +12,7 @@ import '../cpu_profile_model.dart';
 
 class CpuProfileFlameChart extends FlameChart<CpuProfileData, CpuStackFrame?> {
   CpuProfileFlameChart({
+    super.key,
     required CpuProfileData data,
     required double width,
     required double height,
@@ -20,20 +21,20 @@ class CpuProfileFlameChart extends FlameChart<CpuProfileData, CpuStackFrame?> {
     required ValueListenable<CpuStackFrame?> activeSearchMatchNotifier,
     required void Function(CpuStackFrame? stackFrame) onDataSelected,
   }) : super(
-          data,
-          time: data.profileMetaData.time!,
-          containerWidth: width,
-          containerHeight: height,
-          startInset: sideInsetSmall,
-          endInset: sideInsetSmall,
-          selectionNotifier: selectionNotifier,
-          searchMatchesNotifier: searchMatchesNotifier,
-          activeSearchMatchNotifier: activeSearchMatchNotifier,
-          onDataSelected: onDataSelected,
-        );
+         data,
+         time: data.profileMetaData.time!,
+         containerWidth: width,
+         containerHeight: height,
+         startInset: sideInsetSmall,
+         endInset: sideInsetSmall,
+         selectionNotifier: selectionNotifier,
+         searchMatchesNotifier: searchMatchesNotifier,
+         activeSearchMatchNotifier: activeSearchMatchNotifier,
+         onDataSelected: onDataSelected,
+       );
 
   @override
-  _CpuProfileFlameChartState createState() => _CpuProfileFlameChartState();
+  State<CpuProfileFlameChart> createState() => _CpuProfileFlameChartState();
 }
 
 class _CpuProfileFlameChartState
@@ -52,14 +53,14 @@ class _CpuProfileFlameChartState
     );
 
     void createChartNodes(CpuStackFrame stackFrame, int row) {
-      final double width =
+      final width =
           widget.startingContentWidth * stackFrame.totalTimeRatio -
-              stackFramePadding;
+          stackFramePadding;
       final left = startingLeftForStackFrame(stackFrame);
       final colorPair = _colorPairForStackFrame(stackFrame);
 
       final node = FlameChartNode<CpuStackFrame>(
-        key: Key('${stackFrame.id}'),
+        key: Key(stackFrame.id),
         text: stackFrame.name,
         rect: Rect.fromLTWH(left, flameChartNodeTop, width, chartRowHeight),
         colorPair: colorPair,
@@ -69,7 +70,7 @@ class _CpuProfileFlameChartState
 
       rows[row].addNode(node);
 
-      for (CpuStackFrame child in stackFrame.children) {
+      for (final child in stackFrame.children) {
         createChartNodes(child, row + 1);
       }
     }
@@ -129,7 +130,7 @@ class _CpuProfileFlameChartState
   }
 
   double startingLeftForStackFrame(CpuStackFrame stackFrame) {
-    final CpuStackFrame? parent = stackFrame.parent;
+    final parent = stackFrame.parent;
     late double left;
     if (parent == null) {
       left = widget.startInset;
@@ -143,8 +144,9 @@ class _CpuProfileFlameChartState
         assert(stackFrameIndex != -1);
         // [stackFrame] is not the first child of its parent. [left] should
         // equal the right value of its previous sibling.
-        final CpuStackFrame previous = parent.children[stackFrameIndex - 1];
-        left = stackFrameLefts[previous.id]! +
+        final previous = parent.children[stackFrameIndex - 1];
+        left =
+            stackFrameLefts[previous.id]! +
             (widget.startingContentWidth * previous.totalTimeRatio);
       }
     }

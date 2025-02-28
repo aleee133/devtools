@@ -1,26 +1,27 @@
-// Copyright 2023 The Chromium Authors. All rights reserved.
+// Copyright 2023 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 
+import 'package:devtools_app_shared/ui.dart';
 import 'package:flutter/material.dart';
 import 'package:vm_service/vm_service.dart';
 
-import '../../../shared/common_widgets.dart';
 import '../../../shared/console/widgets/expandable_variable.dart';
 import '../../../shared/diagnostics/dart_object_node.dart';
 import '../../../shared/diagnostics/tree_builder.dart';
 import '../../../shared/globals.dart';
 import '../../../shared/primitives/utils.dart';
-import '../../../shared/split.dart';
-import '../../../shared/theme.dart';
+import '../../../shared/ui/colors.dart';
+import '../../../shared/ui/common_widgets.dart';
 import '../vm_developer_common_widgets.dart';
 import 'object_inspector_view_controller.dart';
 import 'vm_object_model.dart';
 
 class VmInstanceDisplay extends StatefulWidget {
   const VmInstanceDisplay({
+    super.key,
     required this.controller,
     required this.instance,
   });
@@ -52,7 +53,8 @@ class _VmInstanceDisplayState extends State<VmInstanceDisplay> {
   }
 
   void _populate() {
-    final isolateRef = serviceManager.isolateManager.selectedIsolate.value;
+    final isolateRef =
+        serviceConnection.serviceManager.isolateManager.selectedIsolate.value;
     _root = DartObjectNode.fromValue(
       name: 'value',
       value: widget.instance.obj,
@@ -62,14 +64,12 @@ class _VmInstanceDisplayState extends State<VmInstanceDisplay> {
 
     unawaited(
       _initialized = buildVariablesTree(_root)
-          .then(
-            (_) => _root.expand(),
-          )
+          .then((_) => _root.expand())
           .then(
             (_) => unawaited(
-              Future.wait([
+              [
                 for (final child in _root.children) buildVariablesTree(child),
-              ]),
+              ].wait,
             ),
           ),
     );
@@ -77,7 +77,7 @@ class _VmInstanceDisplayState extends State<VmInstanceDisplay> {
 
   @override
   Widget build(BuildContext context) {
-    return Split(
+    return SplitPane(
       axis: Axis.vertical,
       initialFractions: const [0.5, 0.5],
       children: [
@@ -98,8 +98,9 @@ class _VmInstanceDisplayState extends State<VmInstanceDisplay> {
                 child: FutureBuilder(
                   future: _initialized,
                   builder: (context, snapshot) {
-                    if (snapshot.connectionState != ConnectionState.done)
+                    if (snapshot.connectionState != ConnectionState.done) {
                       return const CenteredCircularProgressIndicator();
+                    }
                     return ExpandableVariable(
                       variable: _root,
                       dataDisplayProvider: (variable, onPressed) {
@@ -122,10 +123,7 @@ class _VmInstanceDisplayState extends State<VmInstanceDisplay> {
 }
 
 class _InstanceViewer extends StatelessWidget {
-  const _InstanceViewer({
-    required this.controller,
-    required this.instance,
-  });
+  const _InstanceViewer({required this.controller, required this.instance});
 
   final ObjectInspectorViewController controller;
   final InstanceObject instance;
@@ -167,8 +165,8 @@ class DisplayProvider extends StatelessWidget {
     if (variable.text != null) {
       return SelectableText.rich(
         TextSpan(
-          children: processAnsiTerminalCodes(
-            variable.text,
+          children: textSpansFromAnsi(
+            variable.text ?? '',
             theme.subtleFixedFontStyle,
           ),
         ),
@@ -182,17 +180,14 @@ class DisplayProvider extends StatelessWidget {
         SelectableText.rich(
           TextSpan(
             text: hasName ? variable.name : null,
-            style: variable.artificialName
-                ? theme.subtleFixedFontStyle
-                : theme.fixedFontStyle.apply(
-                    color: theme.colorScheme.controlFlowSyntaxColor,
-                  ),
+            style:
+                variable.artificialName
+                    ? theme.subtleFixedFontStyle
+                    : theme.fixedFontStyle.apply(
+                      color: theme.colorScheme.controlFlowSyntaxColor,
+                    ),
             children: [
-              if (hasName)
-                TextSpan(
-                  text: ': ',
-                  style: theme.fixedFontStyle,
-                ),
+              if (hasName) TextSpan(text: ': ', style: theme.fixedFontStyle),
               if (variable.ref!.value is Sentinel)
                 TextSpan(
                   text: 'Sentinel ${variable.displayValue.toString()}',

@@ -1,14 +1,14 @@
-// Copyright 2023 The Chromium Authors. All rights reserved.
+// Copyright 2023 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:vm_service/vm_service.dart';
 
-import '../../../shared/common_widgets.dart';
 import '../../../shared/globals.dart';
+import '../../../shared/ui/common_widgets.dart';
 import '../vm_developer_common_widgets.dart';
 import 'object_inspector_view_controller.dart';
 import 'vm_object_model.dart';
@@ -17,6 +17,7 @@ import 'vm_object_model.dart';
 /// related to list-like VM objects (e.g., subtype test cache, WeakArray, etc).
 class VmSimpleListDisplay<T extends VmListObject> extends StatefulWidget {
   const VmSimpleListDisplay({
+    super.key,
     required this.controller,
     required this.vmObject,
   });
@@ -59,9 +60,16 @@ class _VmSimpleListDisplayState extends State<VmSimpleListDisplay> {
       }
 
       final isolateId =
-          serviceManager.isolateManager.selectedIsolate.value!.id!;
-      final service = serviceManager.service!;
-      _initialized = service.getObject(isolateId, elementsInstance.id!).then(
+          serviceConnection
+              .serviceManager
+              .isolateManager
+              .selectedIsolate
+              .value!
+              .id!;
+      final service = serviceConnection.serviceManager.service!;
+      _initialized = service
+          .getObject(isolateId, elementsInstance.id!)
+          .then(
             (e) => entries.addAll((e as Instance).elements!.cast<Response?>()),
           );
       return;
@@ -80,16 +88,14 @@ class _VmSimpleListDisplayState extends State<VmSimpleListDisplay> {
     return FutureBuilder<void>(
       future: _initialized,
       builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done)
+        if (snapshot.connectionState != ConnectionState.done) {
           return const CenteredCircularProgressIndicator();
+        }
         return VmObjectDisplayBasicLayout(
           controller: widget.controller,
           object: widget.vmObject,
           generalDataRows: [
-            ...vmObjectGeneralDataRows(
-              widget.controller,
-              widget.vmObject,
-            ),
+            ...vmObjectGeneralDataRows(widget.controller, widget.vmObject),
           ],
           expandableWidgets: [
             ExpansionTileInstanceList(

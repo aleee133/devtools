@@ -4,39 +4,35 @@
 
 import 'dart:async';
 
+import 'package:devtools_app_shared/ui.dart';
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../shared/analytics/analytics.dart' as ga;
 import '../../shared/analytics/constants.dart' as gac;
-import '../../shared/common_widgets.dart';
+import '../../shared/config_specific/copy_to_clipboard/copy_to_clipboard.dart';
+import '../../shared/config_specific/import_export/import_export.dart';
+import '../../shared/feature_flags.dart';
+import '../../shared/framework/screen.dart';
 import '../../shared/globals.dart';
 import '../../shared/http/curl_command.dart';
 import '../../shared/http/http_request_data.dart';
-import '../../shared/primitives/auto_dispose.dart';
-import '../../shared/primitives/simple_items.dart';
 import '../../shared/primitives/utils.dart';
-import '../../shared/screen.dart';
-import '../../shared/split.dart';
 import '../../shared/table/table.dart';
 import '../../shared/table/table_data.dart';
-import '../../shared/theme.dart';
+import '../../shared/ui/common_widgets.dart';
+import '../../shared/ui/file_import.dart';
 import '../../shared/ui/filter.dart';
 import '../../shared/ui/search.dart';
-import '../../shared/utils.dart';
+import '../../shared/ui/utils.dart';
 import 'network_controller.dart';
 import 'network_model.dart';
 import 'network_request_inspector.dart';
 
 class NetworkScreen extends Screen {
-  NetworkScreen()
-      : super.conditional(
-          id: id,
-          requiresDartVm: true,
-          title: ScreenMetaData.network.title,
-          icon: Icons.network_check,
-        );
+  NetworkScreen() : super.fromMetaData(ScreenMetaData.network);
 
   static final id = ScreenMetaData.network.id;
 
@@ -44,19 +40,33 @@ class NetworkScreen extends Screen {
   String get docPageId => screenId;
 
   @override
-  Widget build(BuildContext context) => const NetworkScreenBody();
+  Widget buildScreenBody(BuildContext context) => const NetworkScreenBody();
 
   @override
-  Widget buildStatus(BuildContext context) {
-    final networkController = Provider.of<NetworkController>(context);
-    final color = Theme.of(context).textTheme.bodyMedium!.color!;
+  Widget buildDisconnectedScreenBody(BuildContext context) {
+    return const DisconnectedNetworkScreenBody();
+  }
 
-    return DualValueListenableBuilder<NetworkRequests, List<NetworkRequest>>(
-      firstListenable: networkController.requests,
-      secondListenable: networkController.filteredData,
-      builder: (context, networkRequests, filteredRequests, child) {
+  @override
+  Widget? buildStatus(BuildContext context) {
+    final connected =
+        serviceConnection.serviceManager.connectedState.value.connected &&
+        serviceConnection.serviceManager.connectedAppInitialized;
+    if (!connected && !offlineDataController.showingOfflineData.value) {
+      // Do not show status for the Network screen when showing the disconnected
+      // body.
+      return null;
+    }
+
+    final networkController = screenControllers.lookup<NetworkController>();
+    final color = Theme.of(context).colorScheme.onPrimary;
+    return MultiValueListenableBuilder(
+      listenables: [networkController.requests, networkController.filteredData],
+      builder: (context, values, child) {
+        final networkRequests = values.first as List<NetworkRequest>;
+        final filteredRequests = values.second as List<NetworkRequest>;
         final filteredCount = filteredRequests.length;
-        final totalCount = networkRequests.requests.length;
+        final totalCount = networkRequests.length;
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -76,11 +86,12 @@ class NetworkScreen extends Screen {
           return SizedBox(
             width: smallProgressSize,
             height: smallProgressSize,
-            child: recording
-                ? SmallCircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(color),
-                  )
-                : const SizedBox(),
+            child:
+                recording
+                    ? SmallCircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(color),
+                    )
+                    : const SizedBox(),
           );
         },
       ),
@@ -88,60 +99,53 @@ class NetworkScreen extends Screen {
   }
 }
 
+class DisconnectedNetworkScreenBody extends StatelessWidget {
+  const DisconnectedNetworkScreenBody({super.key});
+
+  static const importInstructions =
+      'Open a network data file that was previously saved from DevTools.';
+
+  @override
+  Widget build(BuildContext context) {
+    return FileImportContainer(
+      instructions: importInstructions,
+      actionText: 'Load data',
+      gaScreen: gac.network,
+      gaSelectionImport: gac.PerformanceEvents.openDataFile.name,
+      gaSelectionAction: gac.PerformanceEvents.loadDataFromFile.name,
+      onAction: (jsonFile) {
+        Provider.of<ImportController>(
+          context,
+          listen: false,
+        ).importData(jsonFile, expectedScreenId: NetworkScreen.id);
+      },
+    );
+  }
+}
+
 class NetworkScreenBody extends StatefulWidget {
-  const NetworkScreenBody();
-
-  static const filterQueryInstructions = '''
-Type a filter query to show or hide specific requests.
-
-Any text that is not paired with an available filter key below will be queried against all categories (method, uri, status, type).
-
-Available filters:
-    'method', 'm'       (e.g. 'm:get', '-m:put,patch')
-    'status', 's'           (e.g. 's:200', '-s:404')
-    'type', 't'               (e.g. 't:json', '-t:ws')
-
-Example queries:
-    'my-endpoint method:put,post -status:404 type:json'
-    'example.com -m:get s:200,201 t:htm,html,json'
-    'http s:404'
-    'POST'
-''';
+  const NetworkScreenBody({super.key});
 
   @override
   State<StatefulWidget> createState() => _NetworkScreenBodyState();
 }
 
 class _NetworkScreenBodyState extends State<NetworkScreenBody>
-    with
-        AutoDisposeMixin,
-        ProvidedControllerMixin<NetworkController, NetworkScreenBody> {
+    with AutoDisposeMixin {
+  late NetworkController controller;
+
   @override
   void initState() {
     super.initState();
     ga.screen(NetworkScreen.id);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!initController()) return;
-    unawaited(controller.startRecording());
-
-    cancelListeners();
-
-    addAutoDisposeListener(serviceManager.isolateManager.mainIsolate, () {
-      if (serviceManager.isolateManager.mainIsolate.value != null) {
-        unawaited(controller.startRecording());
-      }
-    });
+    controller = screenControllers.lookup<NetworkController>();
   }
 
   @override
   void dispose() {
+    unawaited(controller.stopRecording());
     // TODO(kenz): this won't work well if we eventually have multiple clients
     // that want to listen to network data.
-    controller.stopRecording();
     super.dispose();
   }
 
@@ -149,11 +153,13 @@ class _NetworkScreenBodyState extends State<NetworkScreenBody>
   Widget build(BuildContext context) {
     return Column(
       children: [
-        _NetworkProfilerControls(controller: controller),
-        const SizedBox(height: intermediateSpacing),
-        Expanded(
-          child: _NetworkProfilerBody(controller: controller),
+        OfflineAwareControls(
+          controlsBuilder:
+              (offline) => _NetworkProfilerControls(offline: offline),
+          gaScreen: gac.network,
         ),
+        const SizedBox(height: intermediateSpacing),
+        const Expanded(child: _NetworkProfilerBody()),
       ],
     );
   }
@@ -162,14 +168,11 @@ class _NetworkScreenBodyState extends State<NetworkScreenBody>
 /// The row of controls that control the Network profiler (e.g., record, pause,
 /// clear, search, filter, etc.).
 class _NetworkProfilerControls extends StatefulWidget {
-  const _NetworkProfilerControls({
-    Key? key,
-    required this.controller,
-  }) : super(key: key);
+  const _NetworkProfilerControls({required this.offline});
 
   static const _includeTextWidth = 810.0;
 
-  final NetworkController controller;
+  final bool offline;
 
   @override
   State<_NetworkProfilerControls> createState() =>
@@ -178,59 +181,44 @@ class _NetworkProfilerControls extends StatefulWidget {
 
 class _NetworkProfilerControlsState extends State<_NetworkProfilerControls>
     with AutoDisposeMixin {
-  late NetworkRequests _requests;
-
-  late List<NetworkRequest> _filteredRequests;
+  late NetworkController controller;
 
   bool _recording = false;
 
   @override
   void initState() {
     super.initState();
+    controller = screenControllers.lookup<NetworkController>();
+    _recording = controller.recordingNotifier.value;
+    addAutoDisposeListener(controller.recordingNotifier, () {
+      setState(() {
+        _recording = controller.recordingNotifier.value;
+      });
+    });
 
-    _recording = widget.controller.recordingNotifier.value;
-    addAutoDisposeListener(widget.controller.recordingNotifier, () {
-      setState(() {
-        _recording = widget.controller.recordingNotifier.value;
-      });
-    });
-    _requests = widget.controller.requests.value;
-    addAutoDisposeListener(widget.controller.requests, () {
-      setState(() {
-        _requests = widget.controller.requests.value;
-      });
-    });
-    _filteredRequests = widget.controller.filteredData.value;
-    addAutoDisposeListener(widget.controller.filteredData, () {
-      setState(() {
-        _filteredRequests = widget.controller.filteredData.value;
-      });
-    });
+    addAutoDisposeListener(controller.filteredData);
   }
 
   @override
   Widget build(BuildContext context) {
-    final hasRequests = _filteredRequests.isNotEmpty;
+    if (widget.offline) {
+      return const SizedBox.shrink();
+    }
+
+    final screenWidth = ScreenSize(context).width;
+    final hasRequests = controller.filteredData.value.isNotEmpty;
     return Row(
       children: [
-        PauseButton(
-          minScreenWidthForTextBeforeScaling:
-              _NetworkProfilerControls._includeTextWidth,
-          tooltip: 'Pause recording network traffic',
+        StartStopRecordingButton(
+          recording: _recording,
+          onPressed: () async => await controller.togglePolling(!_recording),
+          tooltipOverride:
+              _recording
+                  ? 'Stop recording network traffic'
+                  : 'Resume recording network traffic',
+          minScreenWidthForTextBeforeScaling: double.infinity,
           gaScreen: gac.network,
-          gaSelection: gac.pause,
-          onPressed:
-              _recording ? () => widget.controller.togglePolling(false) : null,
-        ),
-        const SizedBox(width: denseSpacing),
-        ResumeButton(
-          minScreenWidthForTextBeforeScaling:
-              _NetworkProfilerControls._includeTextWidth,
-          tooltip: 'Resume recording network traffic',
-          gaScreen: gac.network,
-          gaSelection: gac.resume,
-          onPressed:
-              _recording ? null : () => widget.controller.togglePolling(true),
+          gaSelection: _recording ? gac.pause : gac.resume,
         ),
         const SizedBox(width: denseSpacing),
         ClearButton(
@@ -238,82 +226,99 @@ class _NetworkProfilerControlsState extends State<_NetworkProfilerControls>
               _NetworkProfilerControls._includeTextWidth,
           gaScreen: gac.network,
           gaSelection: gac.clear,
-          onPressed: widget.controller.clear,
-        ),
-        const SizedBox(width: defaultSpacing),
-        const Expanded(child: SizedBox()),
-        // TODO(kenz): fix focus issue when state is refreshed
-        SearchField<NetworkController>(
-          searchController: widget.controller,
-          searchFieldEnabled: hasRequests,
-          searchFieldWidth: wideSearchFieldWidth,
+          onPressed: controller.clear,
         ),
         const SizedBox(width: denseSpacing),
-        FilterButton(
-          onPressed: _showFilterDialog,
-          isFilterActive: _filteredRequests.length != _requests.requests.length,
+        // TODO(kenz): fix focus issue when state is refreshed
+        Expanded(
+          child: SearchField<NetworkController>(
+            searchController: controller,
+            searchFieldEnabled: hasRequests,
+            searchFieldWidth:
+                screenWidth <= MediaSize.xs
+                    ? defaultSearchFieldWidth
+                    : wideSearchFieldWidth,
+          ),
         ),
+        const SizedBox(width: denseSpacing),
+        Expanded(
+          child: StandaloneFilterField<NetworkRequest>(
+            controller: controller,
+            filteredItem: 'request',
+          ),
+        ),
+        const SizedBox(width: denseSpacing),
+        if (FeatureFlags.networkSaveLoad)
+          OpenSaveButtonGroup(
+            screenId: ScreenMetaData.network.id,
+            saveFormats: const [SaveFormat.devtools, SaveFormat.har],
+            gaItemForSaveFormatSelection:
+                (SaveFormat format) => switch (format) {
+                  SaveFormat.devtools => gac.saveFile,
+                  SaveFormat.har => gac.NetworkEvent.downloadAsHar.name,
+                },
+            onSave: (SaveFormat format) async {
+              switch (format) {
+                case SaveFormat.devtools:
+                  await controller.fetchFullDataBeforeExport();
+                  controller.exportData();
+                case SaveFormat.har:
+                  await controller.exportAsHarFile();
+              }
+            },
+          )
+        else
+          DownloadButton(
+            tooltip: 'Download as .har file',
+            minScreenWidthForTextBeforeScaling:
+                _NetworkProfilerControls._includeTextWidth,
+            onPressed: controller.exportAsHarFile,
+            gaScreen: gac.network,
+            gaSelection: gac.NetworkEvent.downloadAsHar.name,
+          ),
       ],
-    );
-  }
-
-  void _showFilterDialog() {
-    unawaited(
-      showDialog(
-        context: context,
-        builder: (context) => FilterDialog<NetworkRequest>(
-          controller: widget.controller,
-          queryInstructions: NetworkScreenBody.filterQueryInstructions,
-        ),
-      ),
     );
   }
 }
 
 class _NetworkProfilerBody extends StatelessWidget {
-  const _NetworkProfilerBody({Key? key, required this.controller})
-      : super(key: key);
-
-  final NetworkController controller;
+  const _NetworkProfilerBody();
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => FocusScope.of(context).unfocus(),
-      child: Split(
-        initialFractions: const [0.5, 0.5],
-        minSizes: const [200, 200],
-        axis: Axis.horizontal,
-        children: [
-          ValueListenableBuilder<List<NetworkRequest>>(
-            valueListenable: controller.filteredData,
-            builder: (context, filteredRequests, _) {
-              return NetworkRequestsTable(
-                networkController: controller,
-                requests: filteredRequests,
-                searchMatchesNotifier: controller.searchMatches,
-                activeSearchMatchNotifier: controller.activeSearchMatch,
-              );
-            },
-          ),
-          NetworkRequestInspector(controller),
-        ],
-      ),
+    final controller = screenControllers.lookup<NetworkController>();
+    final splitAxis = SplitPane.axisFor(context, 1.0);
+    return SplitPane(
+      initialFractions: splitAxis == Axis.horizontal ? [0.6, 0.4] : [0.5, 0.5],
+      minSizes: const [200, 200],
+      axis: splitAxis,
+      children: [
+        ValueListenableBuilder<List<NetworkRequest>>(
+          valueListenable: controller.filteredData,
+          builder: (context, filteredRequests, _) {
+            return NetworkRequestsTable(
+              requests: filteredRequests,
+              searchMatchesNotifier: controller.searchMatches,
+              activeSearchMatchNotifier: controller.activeSearchMatch,
+            );
+          },
+        ),
+        const NetworkRequestInspector(),
+      ],
     );
   }
 }
 
 class NetworkRequestsTable extends StatelessWidget {
   const NetworkRequestsTable({
-    Key? key,
-    required this.networkController,
+    super.key,
     required this.requests,
     required this.searchMatchesNotifier,
     required this.activeSearchMatchNotifier,
-  }) : super(key: key);
+  });
 
   static final methodColumn = MethodColumn();
-  static final addressColumn = UriColumn();
+  static final addressColumn = AddressColumn();
   static final statusColumn = StatusColumn();
   static final typeColumn = TypeColumn();
   static final durationColumn = DurationColumn();
@@ -329,22 +334,20 @@ class NetworkRequestsTable extends StatelessWidget {
     actionsColumn,
   ];
 
-  final NetworkController networkController;
   final List<NetworkRequest> requests;
   final ValueListenable<List<NetworkRequest>> searchMatchesNotifier;
   final ValueListenable<NetworkRequest?> activeSearchMatchNotifier;
 
   @override
   Widget build(BuildContext context) {
+    final networkController = screenControllers.lookup<NetworkController>();
     return RoundedOutlinedBorder(
       clip: true,
-      // TODO(kenz): use SearchableFlatTable instead.
-      child: FlatTable<NetworkRequest?>(
-        keyFactory: (NetworkRequest? data) => ValueKey<NetworkRequest?>(data),
+      child: SearchableFlatTable<NetworkRequest>(
+        searchController: networkController,
+        keyFactory: (NetworkRequest data) => ValueKey<NetworkRequest>(data),
         data: requests,
         dataKey: 'network-requests',
-        searchMatchesNotifier: searchMatchesNotifier,
-        activeSearchMatchNotifier: activeSearchMatchNotifier,
         autoScrollContent: true,
         columns: columns,
         selectionNotifier: networkController.selectedRequest,
@@ -353,6 +356,7 @@ class NetworkRequestsTable extends StatelessWidget {
         onItemSelected: (item) {
           if (item is DartIOHttpRequestData) {
             unawaited(item.getFullRequestData());
+            networkController.resetDropDown();
           }
         },
       ),
@@ -360,13 +364,14 @@ class NetworkRequestsTable extends StatelessWidget {
   }
 }
 
-class UriColumn extends ColumnData<NetworkRequest>
+class AddressColumn extends ColumnData<NetworkRequest>
     implements ColumnRenderer<NetworkRequest> {
-  UriColumn()
-      : super.wide(
-          'Uri',
-          minWidthPx: scaleByFontFactor(100.0),
-        );
+  AddressColumn()
+    : super.wide(
+        'Address',
+        minWidthPx: scaleByFontFactor(isEmbedded() ? 100 : 150.0),
+        showTooltip: true,
+      );
 
   @override
   String getValue(NetworkRequest dataObject) {
@@ -378,6 +383,7 @@ class UriColumn extends ColumnData<NetworkRequest>
     BuildContext context,
     NetworkRequest data, {
     bool isRowSelected = false,
+    bool isRowHovered = false,
     VoidCallback? onPressed,
   }) {
     final value = getDisplayValue(data);
@@ -395,7 +401,7 @@ class UriColumn extends ColumnData<NetworkRequest>
 }
 
 class MethodColumn extends ColumnData<NetworkRequest> {
-  MethodColumn() : super('Method', fixedWidthPx: scaleByFontFactor(70));
+  MethodColumn() : super('Method', fixedWidthPx: scaleByFontFactor(60));
 
   @override
   String getValue(NetworkRequest dataObject) {
@@ -406,13 +412,11 @@ class MethodColumn extends ColumnData<NetworkRequest> {
 class ActionsColumn extends ColumnData<NetworkRequest>
     implements ColumnRenderer<NetworkRequest> {
   ActionsColumn()
-      : super(
-          '',
-          fixedWidthPx: scaleByFontFactor(32),
-          alignment: ColumnAlignment.right,
-        );
-
-  static const _actionSplashRadius = 16.0;
+    : super(
+        '',
+        fixedWidthPx: scaleByFontFactor(32),
+        alignment: ColumnAlignment.right,
+      );
 
   @override
   bool get supportsSorting => false;
@@ -425,54 +429,45 @@ class ActionsColumn extends ColumnData<NetworkRequest>
     return '';
   }
 
-  List<PopupMenuItem> _buildOptions(NetworkRequest data) {
-    return [
-      if (data is DartIOHttpRequestData) ...[
-        PopupMenuItem(
-          child: const Text('Copy as URL'),
-          onTap: () {
-            unawaited(
-              copyToClipboard(
-                data.uri,
-                'Copied the URL to the clipboard',
-              ),
-            );
-          },
-        ),
-        PopupMenuItem(
-          child: const Text('Copy as cURL'),
-          onTap: () {
-            unawaited(
-              copyToClipboard(
-                CurlCommand.from(data).toString(),
-                'Copied the cURL command to the clipboard',
-              ),
-            );
-          },
-        ),
-      ],
-    ];
-  }
-
   @override
   Widget build(
     BuildContext context,
     NetworkRequest data, {
     bool isRowSelected = false,
+    bool isRowHovered = false,
     VoidCallback? onPressed,
   }) {
-    final options = _buildOptions(data);
-
     // Only show the actions button when there are options and the row is
     // currently selected.
-    if (options.isEmpty || !isRowSelected) return const SizedBox.shrink();
+    if (data is! DartIOHttpRequestData || !isRowSelected) {
+      return const SizedBox.shrink();
+    }
 
-    return PopupMenuButton(
-      icon: const Icon(Icons.more_vert),
-      padding: const EdgeInsets.symmetric(horizontal: densePadding),
-      splashRadius: _actionSplashRadius,
-      tooltip: '',
-      itemBuilder: (context) => options,
+    return ContextMenuButton(
+      menuChildren: [
+        MenuItemButton(
+          child: const Text('Copy as URL'),
+          onPressed: () {
+            unawaited(
+              copyToClipboard(
+                data.uri,
+                successMessage: 'Copied the URL to the clipboard',
+              ),
+            );
+          },
+        ),
+        MenuItemButton(
+          child: const Text('Copy as cURL'),
+          onPressed: () {
+            unawaited(
+              copyToClipboard(
+                CurlCommand.from(data).toString(),
+                successMessage: 'Copied the cURL command to the clipboard',
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }
@@ -480,11 +475,12 @@ class ActionsColumn extends ColumnData<NetworkRequest>
 class StatusColumn extends ColumnData<NetworkRequest>
     implements ColumnRenderer<NetworkRequest> {
   StatusColumn()
-      : super(
-          'Status',
-          alignment: ColumnAlignment.right,
-          fixedWidthPx: scaleByFontFactor(62),
-        );
+    : super(
+        'Status',
+        alignment: ColumnAlignment.right,
+        headerAlignment: TextAlign.right,
+        fixedWidthPx: scaleByFontFactor(50),
+      );
 
   @override
   String? getValue(NetworkRequest dataObject) {
@@ -501,25 +497,28 @@ class StatusColumn extends ColumnData<NetworkRequest>
     BuildContext context,
     NetworkRequest data, {
     bool isRowSelected = false,
+    bool isRowHovered = false,
     VoidCallback? onPressed,
   }) {
     final theme = Theme.of(context);
     return Text(
       getDisplayValue(data),
-      style: data.didFail
-          ? TextStyle(color: theme.colorScheme.error)
-          : theme.regularTextStyle,
+      style:
+          data.didFail
+              ? TextStyle(color: theme.colorScheme.error)
+              : theme.regularTextStyle,
     );
   }
 }
 
 class TypeColumn extends ColumnData<NetworkRequest> {
   TypeColumn()
-      : super(
-          'Type',
-          alignment: ColumnAlignment.right,
-          fixedWidthPx: scaleByFontFactor(62),
-        );
+    : super(
+        'Type',
+        alignment: ColumnAlignment.right,
+        headerAlignment: TextAlign.right,
+        fixedWidthPx: scaleByFontFactor(50),
+      );
 
   @override
   String getValue(NetworkRequest dataObject) {
@@ -534,11 +533,12 @@ class TypeColumn extends ColumnData<NetworkRequest> {
 
 class DurationColumn extends ColumnData<NetworkRequest> {
   DurationColumn()
-      : super(
-          'Duration',
-          alignment: ColumnAlignment.right,
-          fixedWidthPx: scaleByFontFactor(80),
-        );
+    : super(
+        'Duration',
+        alignment: ColumnAlignment.right,
+        headerAlignment: TextAlign.right,
+        fixedWidthPx: scaleByFontFactor(75),
+      );
 
   @override
   int? getValue(NetworkRequest dataObject) {
@@ -550,20 +550,18 @@ class DurationColumn extends ColumnData<NetworkRequest> {
     final ms = getValue(dataObject);
     return ms == null
         ? 'Pending'
-        : durationText(
-            Duration(milliseconds: ms),
-            fractionDigits: 0,
-          );
+        : durationText(Duration(milliseconds: ms), fractionDigits: 0);
   }
 }
 
 class TimestampColumn extends ColumnData<NetworkRequest> {
   TimestampColumn()
-      : super(
-          'Timestamp',
-          alignment: ColumnAlignment.right,
-          fixedWidthPx: scaleByFontFactor(135),
-        );
+    : super(
+        'Timestamp',
+        alignment: ColumnAlignment.right,
+        headerAlignment: TextAlign.right,
+        fixedWidthPx: scaleByFontFactor(115),
+      );
 
   @override
   DateTime? getValue(NetworkRequest dataObject) {

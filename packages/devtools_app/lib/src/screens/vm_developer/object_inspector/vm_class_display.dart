@@ -1,6 +1,6 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'package:flutter/material.dart';
 import 'package:vm_service/vm_service.dart';
@@ -18,6 +18,7 @@ const displayClassInstances = false;
 /// related to class objects in the Dart VM.
 class VmClassDisplay extends StatelessWidget {
   const VmClassDisplay({
+    super.key,
     required this.controller,
     required this.clazz,
   });
@@ -27,43 +28,38 @@ class VmClassDisplay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ObjectInspectorCodeView(
-      codeViewController: controller.codeViewController,
-      script: clazz.scriptRef!,
-      object: clazz.ref,
-      child: Row(
-        children: [
-          Flexible(
-            child: VmObjectDisplayBasicLayout(
-              controller: controller,
-              object: clazz,
-              generalDataRows: _classDataRows(clazz),
-            ),
+    final child = Row(
+      children: [
+        Flexible(
+          child: VmObjectDisplayBasicLayout(
+            controller: controller,
+            object: clazz,
+            generalDataRows: _classDataRows(clazz),
           ),
-          if (displayClassInstances)
-            Flexible(
-              child: ClassInstancesWidget(
-                instances: clazz.instances,
-              ),
-            ),
-        ],
-      ),
+        ),
+        if (displayClassInstances)
+          Flexible(child: ClassInstancesWidget(instances: clazz.instances)),
+      ],
     );
+    if (clazz.scriptRef != null) {
+      return ObjectInspectorCodeView(
+        codeViewController: controller.codeViewController,
+        script: clazz.scriptRef!,
+        object: clazz.ref,
+        child: child,
+      );
+    }
+    return child;
   }
 
   // TODO(mtaylee): Delete 'Currently allocated instances' row when
   // ClassInstancesWidget implementation is completed.
   /// Generates a list of key-value pairs (map entries) containing the general
   /// information of the class object [clazz].
-  List<MapEntry<String, WidgetBuilder>> _classDataRows(
-    ClassObject clazz,
-  ) {
+  List<MapEntry<String, WidgetBuilder>> _classDataRows(ClassObject clazz) {
     final superClass = clazz.obj.superClass;
     return [
-      ...vmObjectGeneralDataRows(
-        controller,
-        clazz,
-      ),
+      ...vmObjectGeneralDataRows(controller, clazz),
       if (superClass != null)
         serviceObjectLinkBuilderMapEntry(
           controller: controller,
@@ -83,9 +79,7 @@ class VmClassDisplay extends StatelessWidget {
 // all class instances. When done, remove the last row of the ClassInfoWidget.
 /// Displays information on the instances of the Class object.
 class ClassInstancesWidget extends StatelessWidget {
-  const ClassInstancesWidget({
-    required this.instances,
-  });
+  const ClassInstancesWidget({super.key, required this.instances});
 
   final InstanceSet? instances;
 

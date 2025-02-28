@@ -1,10 +1,9 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:ui';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
 
@@ -13,22 +12,18 @@ import '../ui/utils.dart';
 
 String crossAxisAssetImageUrl(Axis direction, CrossAxisAlignment alignment) {
   return 'assets/img/layout_explorer/cross_axis_alignment/'
-      '${direction.flexType.toLowerCase()}_${describeEnum(alignment)}.png';
+      '${direction.flexType.toLowerCase()}_${alignment.name}.png';
 }
 
 String mainAxisAssetImageUrl(Axis direction, MainAxisAlignment alignment) {
   return 'assets/img/layout_explorer/main_axis_alignment/'
-      '${direction.flexType.toLowerCase()}_${describeEnum(alignment)}.png';
+      '${direction.flexType.toLowerCase()}_${alignment.name}.png';
 }
 
 class AnimatedFlexLayoutProperties
     extends AnimatedLayoutProperties<FlexLayoutProperties>
     implements FlexLayoutProperties {
-  AnimatedFlexLayoutProperties(
-    FlexLayoutProperties begin,
-    FlexLayoutProperties end,
-    Animation<double> animation,
-  ) : super(begin, end, animation);
+  AnimatedFlexLayoutProperties(super.begin, super.end, super.animation);
 
   @override
   CrossAxisAlignment? get crossAxisAlignment => end.crossAxisAlignment;
@@ -69,10 +64,9 @@ class AnimatedFlexLayoutProperties
           offset: Offset.lerp(beginProps.offset, endProps.offset, t),
           size: Size.lerp(beginProps.size, endProps.size, t),
           realSize: Size.lerp(beginProps.realSize, endProps.realSize, t),
-          // TODO(polina-c, jacob314): crnsider refactoring to get rid of `!`.
           layoutProperties: AnimatedLayoutProperties(
-            beginProps.layoutProperties!,
-            endProps.layoutProperties!,
+            beginProps.layoutProperties,
+            endProps.layoutProperties,
             animation,
           ),
         ),
@@ -86,7 +80,8 @@ class AnimatedFlexLayoutProperties
   }
 
   @override
-  double get crossAxisDimension => lerpDouble(
+  double get crossAxisDimension =>
+      lerpDouble(
         begin.crossAxisDimension,
         end.crossAxisDimension,
         animation.value,
@@ -120,7 +115,8 @@ class AnimatedFlexLayoutProperties
   bool get isMainAxisVertical => end.isMainAxisVertical;
 
   @override
-  double get mainAxisDimension => lerpDouble(
+  double get mainAxisDimension =>
+      lerpDouble(
         begin.mainAxisDimension,
         end.mainAxisDimension,
         animation.value,
@@ -198,7 +194,6 @@ extension AxisExtension on Axis {
       case Axis.horizontal:
         return 'Row';
       case Axis.vertical:
-      default:
         return 'Column';
     }
   }

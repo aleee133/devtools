@@ -1,6 +1,6 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'package:devtools_shared/devtools_shared.dart';
 import 'package:test/test.dart';
@@ -81,27 +81,27 @@ void main() {
     test('isVersionSupported', () {
       final supportedVersion = SemanticVersion(major: 1, minor: 1, patch: 1);
       expect(
-        SemanticVersion().isSupported(supportedVersion: SemanticVersion()),
+        SemanticVersion().isSupported(minSupportedVersion: SemanticVersion()),
         isTrue,
       );
       expect(
         SemanticVersion(major: 1, minor: 1, patch: 2)
-            .isSupported(supportedVersion: supportedVersion),
+            .isSupported(minSupportedVersion: supportedVersion),
         isTrue,
       );
       expect(
         SemanticVersion(major: 1, minor: 2, patch: 1)
-            .isSupported(supportedVersion: supportedVersion),
+            .isSupported(minSupportedVersion: supportedVersion),
         isTrue,
       );
       expect(
         SemanticVersion(major: 2, minor: 1, patch: 1)
-            .isSupported(supportedVersion: supportedVersion),
+            .isSupported(minSupportedVersion: supportedVersion),
         isTrue,
       );
       expect(
         SemanticVersion(major: 2, minor: 1, patch: 1).isSupported(
-          supportedVersion: SemanticVersion(major: 2, minor: 2, patch: 1),
+          minSupportedVersion: SemanticVersion(major: 2, minor: 2, patch: 1),
         ),
         isFalse,
       );

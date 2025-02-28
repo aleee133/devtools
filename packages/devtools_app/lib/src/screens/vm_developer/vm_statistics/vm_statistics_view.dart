@@ -1,29 +1,24 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
+import 'package:devtools_app_shared/ui.dart';
 import 'package:flutter/material.dart';
 import 'package:vm_service/vm_service.dart';
 
 import '../../../shared/analytics/constants.dart' as gac;
-import '../../../shared/common_widgets.dart';
+import '../../../shared/primitives/byte_utils.dart';
 import '../../../shared/primitives/utils.dart';
 import '../../../shared/table/table.dart';
 import '../../../shared/table/table_data.dart';
-import '../../../shared/theme.dart';
+import '../../../shared/ui/common_widgets.dart';
 import '../vm_developer_common_widgets.dart';
 import '../vm_developer_tools_screen.dart';
 import '../vm_service_private_extensions.dart';
 import 'vm_statistics_view_controller.dart';
 
 class VMStatisticsView extends VMDeveloperView {
-  const VMStatisticsView()
-      : super(
-          id,
-          title: 'VM',
-          icon: Icons.devices,
-        );
-  static const id = 'vm-statistics';
+  const VMStatisticsView() : super(title: 'VM', icon: Icons.devices);
 
   @override
   Widget build(BuildContext context) => VMStatisticsViewBody();
@@ -31,6 +26,8 @@ class VMStatisticsView extends VMDeveloperView {
 
 /// Displays general information about the state of the Dart VM.
 class VMStatisticsViewBody extends StatelessWidget {
+  VMStatisticsViewBody({super.key});
+
   final controller = VMStatisticsViewController();
   @override
   Widget build(BuildContext context) {
@@ -46,10 +43,8 @@ class VMStatisticsViewBody extends StatelessWidget {
         Expanded(
           child: ValueListenableBuilder(
             valueListenable: controller.refreshing,
-            builder: (context, _, __) {
-              return VMStatisticsWidget(
-                controller: controller,
-              );
+            builder: (context, _, _) {
+              return VMStatisticsWidget(controller: controller);
             },
           ),
         ),
@@ -59,7 +54,7 @@ class VMStatisticsViewBody extends StatelessWidget {
 }
 
 class VMStatisticsWidget extends StatelessWidget {
-  const VMStatisticsWidget({required this.controller});
+  const VMStatisticsWidget({super.key, required this.controller});
 
   final VMStatisticsViewController controller;
 
@@ -72,15 +67,9 @@ class VMStatisticsWidget extends StatelessWidget {
           child: Column(
             children: [
               Expanded(
-                child: GeneralVMStatisticsWidget(
-                  controller: controller,
-                ),
+                child: GeneralVMStatisticsWidget(controller: controller),
               ),
-              Expanded(
-                child: ProcessStatisticsWidget(
-                  controller: controller,
-                ),
-              ),
+              Expanded(child: ProcessStatisticsWidget(controller: controller)),
             ],
           ),
         ),
@@ -88,11 +77,7 @@ class VMStatisticsWidget extends StatelessWidget {
           flex: 4,
           child: Column(
             children: [
-              Flexible(
-                child: IsolatesPreviewWidget(
-                  controller: controller,
-                ),
-              ),
+              Flexible(child: IsolatesPreviewWidget(controller: controller)),
               Flexible(
                 child: IsolatesPreviewWidget(
                   controller: controller,
@@ -115,7 +100,7 @@ class VMStatisticsWidget extends StatelessWidget {
 ///   - Profiler mode
 ///   - Current memory consumption
 class GeneralVMStatisticsWidget extends StatelessWidget {
-  const GeneralVMStatisticsWidget({required this.controller});
+  const GeneralVMStatisticsWidget({super.key, required this.controller});
 
   final VMStatisticsViewController controller;
 
@@ -125,6 +110,7 @@ class GeneralVMStatisticsWidget extends StatelessWidget {
     return OutlineDecoration(
       child: VMInfoCard(
         title: 'VM',
+        roundedTopBorder: false,
         rowKeyValues: [
           selectableTextBuilderMapEntry('Name', vm?.name),
           selectableTextBuilderMapEntry('Version', vm?.version),
@@ -134,16 +120,13 @@ class GeneralVMStatisticsWidget extends StatelessWidget {
             vm == null
                 ? null
                 : formatDateTime(
-                    DateTime.fromMillisecondsSinceEpoch(vm.startTime!),
-                  ),
+                  DateTime.fromMillisecondsSinceEpoch(vm.startTime!),
+                ),
           ),
           selectableTextBuilderMapEntry('Profiler Mode', vm?.profilerMode),
           selectableTextBuilderMapEntry(
             'Current Memory',
-            prettyPrintBytes(
-              vm?.currentMemory,
-              includeUnit: true,
-            ),
+            prettyPrintBytes(vm?.currentMemory, includeUnit: true),
           ),
         ],
       ),
@@ -159,7 +142,7 @@ class GeneralVMStatisticsWidget extends StatelessWidget {
 ///   - Current and maximum resident set size (RSS) utilization
 ///   - Zone allocator memory utilization
 class ProcessStatisticsWidget extends StatelessWidget {
-  const ProcessStatisticsWidget({required this.controller});
+  const ProcessStatisticsWidget({super.key, required this.controller});
 
   final VMStatisticsViewController controller;
 
@@ -170,6 +153,7 @@ class ProcessStatisticsWidget extends StatelessWidget {
       showTop: false,
       child: VMInfoCard(
         title: 'Process',
+        roundedTopBorder: false,
         rowKeyValues: [
           selectableTextBuilderMapEntry('PID', vm?.pid?.toString()),
           selectableTextBuilderMapEntry(
@@ -183,24 +167,15 @@ class ProcessStatisticsWidget extends StatelessWidget {
           ),
           selectableTextBuilderMapEntry(
             'Max Memory (RSS)',
-            prettyPrintBytes(
-              vm?.maxRSS,
-              includeUnit: true,
-            ),
+            prettyPrintBytes(vm?.maxRSS, includeUnit: true),
           ),
           selectableTextBuilderMapEntry(
             'Current Memory (RSS)',
-            prettyPrintBytes(
-              vm?.currentRSS,
-              includeUnit: true,
-            ),
+            prettyPrintBytes(vm?.currentRSS, includeUnit: true),
           ),
           selectableTextBuilderMapEntry(
             'Zone Memory',
-            prettyPrintBytes(
-              vm?.nativeZoneMemoryUsage,
-              includeUnit: true,
-            ),
+            prettyPrintBytes(vm?.nativeZoneMemoryUsage, includeUnit: true),
           ),
         ],
       ),
@@ -223,7 +198,7 @@ class _IsolateIDColumn extends ColumnData<Isolate> {
 }
 
 abstract class _IsolateMemoryColumn extends ColumnData<Isolate> {
-  _IsolateMemoryColumn(String title) : super.wide(title);
+  _IsolateMemoryColumn(super.title) : super.wide();
 
   int getCapacity(Isolate i);
   int getUsage(Isolate i);
@@ -243,6 +218,9 @@ class _IsolateNewSpaceColumn extends _IsolateMemoryColumn {
 
   @override
   int getUsage(Isolate i) => i.newSpaceUsage;
+
+  @override
+  bool get numeric => true;
 }
 
 class _IsolateOldSpaceColumn extends _IsolateMemoryColumn {
@@ -253,6 +231,9 @@ class _IsolateOldSpaceColumn extends _IsolateMemoryColumn {
 
   @override
   int getUsage(Isolate i) => i.oldSpaceUsage;
+
+  @override
+  bool get numeric => true;
 }
 
 class _IsolateHeapColumn extends _IsolateMemoryColumn {
@@ -263,6 +244,9 @@ class _IsolateHeapColumn extends _IsolateMemoryColumn {
 
   @override
   int getUsage(Isolate i) => i.dartHeapSize;
+
+  @override
+  bool get numeric => true;
 }
 
 /// Displays general statistics about running isolates including:
@@ -272,6 +256,7 @@ class _IsolateHeapColumn extends _IsolateMemoryColumn {
 ///   - Dart heap usage
 class IsolatesPreviewWidget extends StatelessWidget {
   const IsolatesPreviewWidget({
+    super.key,
     required this.controller,
     this.systemIsolates = false,
   });
@@ -303,6 +288,7 @@ class IsolatesPreviewWidget extends StatelessWidget {
       showTop: !systemIsolates,
       child: VMInfoCard(
         title: '$title (${isolates.length})',
+        roundedTopBorder: false,
         table: Flexible(
           child: FlatTable<Isolate>(
             keyFactory: (Isolate i) => ValueKey<String>(i.id!),

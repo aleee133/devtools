@@ -1,22 +1,23 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
+import 'package:devtools_app_shared/ui.dart';
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:vm_service/vm_service.dart' hide Stack;
 
 import '../../shared/analytics/analytics.dart' as ga;
-import '../../shared/banner_messages.dart';
-import '../../shared/common_widgets.dart';
+import '../../shared/analytics/constants.dart' as gac;
+import '../../shared/config_specific/import_export/import_export.dart';
+import '../../shared/framework/screen.dart';
 import '../../shared/globals.dart';
-import '../../shared/primitives/auto_dispose.dart';
+import '../../shared/managers/banner_messages.dart';
 import '../../shared/primitives/listenable.dart';
-import '../../shared/primitives/simple_items.dart';
-import '../../shared/screen.dart';
-import '../../shared/theme.dart';
-import '../../shared/ui/icons.dart';
-import '../../shared/utils.dart';
+import '../../shared/ui/common_widgets.dart';
+import '../../shared/ui/file_import.dart';
 import 'cpu_profile_model.dart';
 import 'cpu_profiler.dart';
 import 'cpu_profiler_controller.dart';
@@ -25,14 +26,7 @@ import 'profiler_screen_controller.dart';
 import 'profiler_status.dart';
 
 class ProfilerScreen extends Screen {
-  ProfilerScreen()
-      : super.conditional(
-          id: id,
-          requiresDartVm: true,
-          worksOffline: true,
-          title: ScreenMetaData.cpuProfiler.title,
-          icon: Octicons.dashboard,
-        );
+  ProfilerScreen() : super.fromMetaData(ScreenMetaData.cpuProfiler);
 
   static final id = ScreenMetaData.cpuProfiler.id;
 
@@ -44,20 +38,27 @@ class ProfilerScreen extends Screen {
       const FixedValueListenable<bool>(true);
 
   @override
-  Widget build(BuildContext context) => const ProfilerScreenBody();
+  Widget buildScreenBody(BuildContext context) {
+    return const ProfilerScreenBody();
+  }
+
+  @override
+  Widget buildDisconnectedScreenBody(BuildContext context) {
+    return const DisconnectedCpuProfilerScreenBody();
+  }
 }
 
 class ProfilerScreenBody extends StatefulWidget {
-  const ProfilerScreenBody();
+  const ProfilerScreenBody({super.key});
 
   @override
-  _ProfilerScreenBodyState createState() => _ProfilerScreenBodyState();
+  State<ProfilerScreenBody> createState() => _ProfilerScreenBodyState();
 }
 
 class _ProfilerScreenBodyState extends State<ProfilerScreenBody>
-    with
-        AutoDisposeMixin,
-        ProvidedControllerMixin<ProfilerScreenController, ProfilerScreenBody> {
+    with AutoDisposeMixin {
+  late ProfilerScreenController controller;
+
   bool recording = false;
 
   late CpuProfilerBusyStatus profilerBusyStatus;
@@ -68,17 +69,8 @@ class _ProfilerScreenBodyState extends State<ProfilerScreenBody>
   void initState() {
     super.initState();
     ga.screen(ProfilerScreen.id);
-    addAutoDisposeListener(offlineController.offlineMode);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    maybePushDebugModePerformanceMessage(context, ProfilerScreen.id);
-    if (!initController()) return;
-
-    cancelListeners();
-
+    controller = screenControllers.lookup<ProfilerScreenController>();
+    addAutoDisposeListener(offlineDataController.showingOfflineData);
     addAutoDisposeListener(controller.loadingOfflineData);
 
     recording = controller.recordingNotifier.value;
@@ -102,15 +94,28 @@ class _ProfilerScreenBodyState extends State<ProfilerScreenBody>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    maybePushDebugModePerformanceMessage(context, ProfilerScreen.id);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (offlineController.offlineMode.value)
+    if (offlineDataController.showingOfflineData.value) {
       return _buildProfilerScreenBody(controller);
+    }
+    late final cpuProfilerDisabled = CpuProfilerDisabled(
+      controller.cpuProfilerController,
+    );
+    if (controller.cpuProfilerController.profilerFlagNotifier == null) {
+      return cpuProfilerDisabled;
+    }
     return ValueListenableBuilder<Flag>(
       valueListenable: controller.cpuProfilerController.profilerFlagNotifier!,
       builder: (context, profilerFlag, _) {
         return profilerFlag.valueAsString == 'true'
             ? _buildProfilerScreenBody(controller)
-            : CpuProfilerDisabled(controller.cpuProfilerController);
+            : cpuProfilerDisabled;
       },
     );
   }
@@ -126,23 +131,24 @@ class _ProfilerScreenBodyState extends State<ProfilerScreenBody>
             child: const CenteredCircularProgressIndicator(),
           );
         }
-        final status = recording || profilerBusy
-            ? (recording
-                ? const RecordingStatus()
-                : ProfilerBusyStatus(status: profilerBusyStatus))
-            : null;
-
+        final status =
+            recording || profilerBusy
+                ? (recording
+                    ? const RecordingStatus()
+                    : ProfilerBusyStatus(status: profilerBusyStatus))
+                : null;
         return Column(
           children: [
             ProfilerScreenControls(
               controller: controller,
               recording: recording,
               processing: profilerBusy,
-              offline: offlineController.offlineMode.value,
+              offline: offlineDataController.showingOfflineData.value,
             ),
             const SizedBox(height: intermediateSpacing),
             Expanded(
-              child: status ??
+              child:
+                  status ??
                   ValueListenableBuilder<CpuProfileData?>(
                     valueListenable:
                         controller.cpuProfilerController.dataNotifier,
@@ -169,6 +175,30 @@ class _ProfilerScreenBodyState extends State<ProfilerScreenBody>
             ),
           ],
         );
+      },
+    );
+  }
+}
+
+class DisconnectedCpuProfilerScreenBody extends StatelessWidget {
+  const DisconnectedCpuProfilerScreenBody({super.key});
+
+  static const importInstructions =
+      'Open a CPU profile that was previously saved from DevTools';
+
+  @override
+  Widget build(BuildContext context) {
+    return FileImportContainer(
+      instructions: importInstructions,
+      actionText: 'Load data',
+      gaScreen: gac.cpuProfiler,
+      gaSelectionImport: gac.CpuProfilerEvents.openDataFile.name,
+      gaSelectionAction: gac.CpuProfilerEvents.loadDataFromFile.name,
+      onAction: (jsonFile) {
+        Provider.of<ImportController>(
+          context,
+          listen: false,
+        ).importData(jsonFile, expectedScreenId: ProfilerScreen.id);
       },
     );
   }

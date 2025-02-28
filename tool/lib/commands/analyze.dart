@@ -1,17 +1,40 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
-import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:cli_util/cli_logging.dart';
+import 'package:io/io.dart';
 
 import '../model.dart';
 import '../utils.dart';
 
+const _fatalInfosArg = 'fatal-infos';
+const _skipUnimportantArg = 'skip-unimportant';
+
+const _unimportantDirectories = ['case_study', 'fixtures'];
+
 class AnalyzeCommand extends Command {
+  AnalyzeCommand() {
+    argParser
+      ..addFlag(
+        _fatalInfosArg,
+        help: 'Sets the "fatal-infos" flag for the dart analyze command',
+        defaultsTo: true,
+        negatable: true,
+      )
+      ..addFlag(
+        _skipUnimportantArg,
+        help:
+            'Skips analysis for unimportant directories '
+            '${_unimportantDirectories.toString()}',
+        defaultsTo: false,
+        negatable: false,
+      );
+  }
+
   @override
   String get name => 'analyze';
 
@@ -20,53 +43,45 @@ class AnalyzeCommand extends Command {
 
   @override
   Future run() async {
-    final sdk = FlutterSdk.getSdk();
-    if (sdk == null) {
-      print('Unable to locate a Flutter sdk.');
-      return 1;
-    }
-
     final log = Logger.standard();
-    final repo = DevToolsRepo.getInstance()!;
-    final packages = repo.getPackages();
+    final repo = DevToolsRepo.getInstance();
+    final processManager = ProcessManager();
+    final skipUnimportant = argResults![_skipUnimportantArg] as bool;
+    final packages = repo.getPackages(
+      skip: skipUnimportant ? _unimportantDirectories : [],
+      // Analyzing packages that are subdirectories of another package is
+      // redundant.
+      includeSubdirectories: false,
+    );
+    final fatalInfos = argResults![_fatalInfosArg] as bool;
 
     log.stdout('Running flutter analyze...');
 
     int failureCount = 0;
 
-    for (Package p in packages) {
+    for (final p in packages) {
       if (!p.hasAnyDartCode) {
         continue;
       }
 
       final progress = log.progress('  ${p.relativePath}');
 
-      final process = await Process.start(
-        sdk.dartToolPath,
-        ['analyze', '--fatal-infos'],
+      final process = await processManager.runProcess(
+        CliCommand.dart(
+          ['analyze', if (fatalInfos) '--fatal-infos'],
+          // Run all so we can see the full set of results instead of stopping
+          // on the first error.
+          throwOnException: false,
+        ),
         workingDirectory: p.packagePath,
       );
-      final Stream<List<int>> stdout = process.stdout;
-      final Stream<List<int>> stderr = process.stderr;
 
-      final int exitCode = await process.exitCode;
-
-      if (exitCode == 0) {
+      if (process.exitCode == 0) {
         progress.finish(showTiming: true);
       } else {
         failureCount++;
 
-        // Display stderr when there's an error.
-        final List<List<int>> out = await stdout.toList();
-        final stdOutput = convertProcessOutputToString(out, '    ');
-
-        final List<List<int>> err = await stderr.toList();
-        final errorOutput = convertProcessOutputToString(err, '    ');
-
         progress.finish(message: 'failed');
-
-        log.stderr(stdOutput);
-        log.stderr(log.ansi.error(errorOutput));
       }
     }
 

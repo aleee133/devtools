@@ -1,21 +1,22 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:html';
+import 'dart:js_interop';
+import 'package:web/web.dart';
 
 import '../../globals.dart';
 import '../../primitives/utils.dart';
 import 'drag_and_drop.dart';
 
-DragAndDropManagerWeb createDragAndDropManager() {
-  return DragAndDropManagerWeb();
+DragAndDropManagerWeb createDragAndDropManager(int viewId) {
+  return DragAndDropManagerWeb(viewId);
 }
 
 class DragAndDropManagerWeb extends DragAndDropManager {
-  DragAndDropManagerWeb() : super.impl();
+  DragAndDropManagerWeb(super.viewId) : super.impl();
 
   late final StreamSubscription<MouseEvent> onDragOverSubscription;
 
@@ -39,11 +40,11 @@ class DragAndDropManagerWeb extends DragAndDropManager {
   }
 
   void _onDragOver(MouseEvent event) {
-    dragOver(event.offset.x as double, event.offset.y as double);
+    dragOver(event.offsetX.toDouble(), event.offsetY.toDouble());
 
     // This is necessary to allow us to drop.
     event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
+    (event as DragEvent).dataTransfer!.dropEffect = 'move';
   }
 
   void _onDragLeave(MouseEvent _) {
@@ -60,28 +61,32 @@ class DragAndDropManagerWeb extends DragAndDropManager {
     // handler, return early.
     if (activeState?.widget.handleDrop == null) return;
 
-    final List<File> files = event.dataTransfer.files!;
+    final files = (event as DragEvent).dataTransfer!.files;
     if (files.length > 1) {
       notificationService.push('You cannot import more than one file.');
       return;
     }
 
-    final droppedFile = files.first;
-    if (droppedFile.type != 'application/json') {
+    final droppedFile = files.item(0);
+    if (droppedFile?.type != 'application/json') {
       notificationService.push(
-        '${droppedFile.type} is not a supported file type. Please import '
+        '${droppedFile?.type} is not a supported file type. Please import '
         'a .json file that was exported from Dart DevTools.',
       );
       return;
     }
 
-    final FileReader reader = FileReader();
-    reader.onLoad.listen((_) {
+    final reader = FileReader();
+    (reader as Element).onLoad.listen((event) {
       try {
-        final Object json = jsonDecode(reader.result as String);
+        // The reader's result is a string as `readAsText` was used.
+        final Object json = jsonDecode((reader.result as JSString).toDart);
         final devToolsJsonFile = DevToolsJsonFile(
-          name: droppedFile.name,
-          lastModifiedTime: droppedFile.lastModifiedDate,
+          name: droppedFile!.name,
+          lastModifiedTime: DateTime.fromMillisecondsSinceEpoch(
+            droppedFile.lastModified,
+            isUtc: true,
+          ),
           data: json,
         );
         activeState!.widget.handleDrop!(devToolsJsonFile);
@@ -96,7 +101,7 @@ class DragAndDropManagerWeb extends DragAndDropManager {
     });
 
     try {
-      reader.readAsText(droppedFile);
+      reader.readAsText(droppedFile!);
     } catch (e) {
       notificationService.push('Could not import file: $e');
     }

@@ -1,34 +1,32 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
+import 'package:devtools_app_shared/ui.dart';
 import 'package:flutter/material.dart';
 
 import '../../../shared/primitives/utils.dart';
 import '../../../shared/table/table.dart';
 import '../../../shared/table/table_data.dart';
-import '../../../shared/theme.dart';
 import '../cpu_profile_model.dart';
 import 'cpu_profile_columns.dart';
 
 /// A table of the bottom up tree for a CPU profile.
 class CpuBottomUpTable extends StatelessWidget {
-  const CpuBottomUpTable({
-    required this.bottomUpRoots,
-    required this.displayTreeGuidelines,
-    super.key,
-  });
+  const CpuBottomUpTable({required this.bottomUpRoots, super.key});
 
   static final methodColumn = MethodAndSourceColumn();
   static final selfTimeColumn = SelfTimeColumn(
     titleTooltip: selfTimeTooltip,
-    dataTooltipProvider: (stackFrame, context) =>
-        _bottomUpTimeTooltipBuilder(_TimeType.self, stackFrame, context),
+    dataTooltipProvider:
+        (stackFrame, context) =>
+            _bottomUpTimeTooltipBuilder(_TimeType.self, stackFrame, context),
   );
   static final totalTimeColumn = TotalTimeColumn(
     titleTooltip: totalTimeTooltip,
-    dataTooltipProvider: (stackFrame, context) =>
-        _bottomUpTimeTooltipBuilder(_TimeType.total, stackFrame, context),
+    dataTooltipProvider:
+        (stackFrame, context) =>
+            _bottomUpTimeTooltipBuilder(_TimeType.total, stackFrame, context),
   );
   static final columns = List<ColumnData<CpuStackFrame>>.unmodifiable([
     totalTimeColumn,
@@ -53,8 +51,6 @@ the top-level method (the callee) when called through the child method (the call
 
   final List<CpuStackFrame> bottomUpRoots;
 
-  final bool displayTreeGuidelines;
-
   static InlineSpan? _bottomUpTimeTooltipBuilder(
     _TimeType type,
     CpuStackFrame stackFrame,
@@ -67,12 +63,10 @@ the top-level method (the callee) when called through the child method (the call
           return TextSpan(
             children: [
               const TextSpan(text: 'Time that '),
-              TextSpan(
-                text: '[${stackFrame.name}]',
-                style: fixedStyle,
-              ),
+              TextSpan(text: '[${stackFrame.name}]', style: fixedStyle),
               const TextSpan(
-                text: ' spent executing its own code,\nas well as the code for'
+                text:
+                    ' spent executing its own code,\nas well as the code for'
                     ' any methods that it called.',
               ),
             ],
@@ -81,10 +75,7 @@ the top-level method (the callee) when called through the child method (the call
           return TextSpan(
             children: [
               const TextSpan(text: 'Time that '),
-              TextSpan(
-                text: '[${stackFrame.name}]',
-                style: fixedStyle,
-              ),
+              TextSpan(text: '[${stackFrame.name}]', style: fixedStyle),
               const TextSpan(text: ' spent executing its own code.'),
             ],
           );
@@ -93,15 +84,9 @@ the top-level method (the callee) when called through the child method (the call
     return TextSpan(
       children: [
         TextSpan(text: '$type time for root '),
-        TextSpan(
-          text: '[${stackFrame.root.name}]',
-          style: fixedStyle,
-        ),
+        TextSpan(text: '[${stackFrame.root.name}]', style: fixedStyle),
         const TextSpan(text: '\nwhen called through '),
-        TextSpan(
-          text: '[${stackFrame.name}]',
-          style: fixedStyle,
-        ),
+        TextSpan(text: '[${stackFrame.name}]', style: fixedStyle),
       ],
     );
   }
@@ -110,7 +95,7 @@ the top-level method (the callee) when called through the child method (the call
   Widget build(BuildContext context) {
     return TreeTable<CpuStackFrame>(
       keyFactory: (frame) => PageStorageKey<String>(frame.id),
-      displayTreeGuidelines: displayTreeGuidelines,
+      displayTreeGuidelines: true,
       dataRoots: bottomUpRoots,
       dataKey: 'cpu-bottom-up',
       columns: columns,

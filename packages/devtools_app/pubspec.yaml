@@ -1,94 +1,97 @@
+# Copyright 2025 The Flutter Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 name: devtools_app
 description: Web-based performance tooling for Dart and Flutter.
 publish_to: none
 
-# Note: this version should only be updated by running tools/update_version.dart
-# that updates all versions of devtools packages (devtools_app, devtools_test).
-version: 2.24.0-dev.4
+# Note: this version should only be updated by running the 'dt update-version'
+# command that updates the version here and in 'devtools.dart'.
+version: 2.43.0
 
 repository: https://github.com/flutter/devtools/tree/master/packages/devtools_app
 
 environment:
-  sdk: '>=3.0.0-417.0.dev <4.0.0'
-  flutter: '>=3.0.0'
+  sdk: ">=3.7.0-160.0.dev <4.0.0"
+  flutter: ">=3.27.0-1.0.pre.563"
+
+resolution: workspace
 
 dependencies:
-  ansi_up: ^1.0.0
-  #     path: ../../third_party/packages/ansi_up
-  # Pin ansicolor to version before pre-NNBD version 1.1.0, should be ^1.0.5
-  # See https://github.com/flutter/devtools/issues/2530
-  ansicolor: ^2.0.0
-  # TODO: https://github.com/flutter/devtools/issues/4728 - remove constraint when archive is fixed
-  archive: <3.3.3
   async: ^2.0.0
-  codicon: ^1.0.0
   collection: ^1.15.0
-  dds: ^2.7.2
-  dds_service_extensions: ^1.3.2
-  devtools_shared: 2.24.0-dev.4
-  file: ^6.0.0
-  file_selector: ^0.8.0
-  file_selector_linux: ^0.0.2
-  file_selector_macos: ^0.0.2
-  file_selector_web: ^0.8.1
-  file_selector_windows: ^0.0.2
+  dap: ^1.1.0
+  dds_service_extensions: ^2.0.0
+  devtools_app_shared:
+  devtools_extensions:
+  devtools_shared:
+  dtd: ^2.4.0
+  file: ^7.0.0
+  file_selector: ^1.0.0
+  fixnum: ^1.1.0
   flutter:
     sdk: flutter
-  flutter_markdown: ^0.6.8
-  # TODO: https://github.com/flutter/devtools/issues/4569 - unpin this version
-  flutter_riverpod: 2.0.0-dev.9
+  flutter_markdown: ^0.7.1
   flutter_web_plugins:
     sdk: flutter
-  http: ^0.13.4
-  image: ^3.0.2
-  intl: '>=0.16.1 <0.18.0'
-  js: ^0.6.1+1
-  leak_tracker: 2.0.1
+  http: ^1.1.0
+  image: ^4.1.3
+  intl: ^0.19.0
+  json_rpc_2: ^3.0.2
   logging: ^1.1.1
-  mime: ^1.0.0
+  meta: ^1.9.1
+  mime: ^2.0.0
   path: ^1.8.0
   perfetto_ui_compiled:
     path: ../../third_party/packages/perfetto_ui_compiled
-  pointer_interceptor: ^0.9.3+3
+  pointer_interceptor: ^0.10.1+1
   provider: ^6.0.2
-  # Only used for debug mode logic.
-  shared_preferences: ^2.0.15
+  source_map_stack_trace: ^2.1.2
+  source_maps: ^0.10.12
   sse: ^4.1.2
-  stack_trace: ^1.10.0
-  string_scanner: ^1.1.0
-  url_launcher: ^6.1.0
-  url_launcher_web: ^2.0.6
-  vm_service: ^11.3.0
-  vm_snapshot_analysis: ^0.7.1
-  web_socket_channel: ^2.1.0
-  # widget_icons: ^0.0.1
+  stack_trace: ^1.12.0
+  string_scanner: ^1.4.0
+  unified_analytics: ^7.0.0
+  vm_service: '>=15.0.0 <16.0.0'
+  vm_service_protos: ^1.0.0
+  vm_snapshot_analysis: ^0.7.6
+  web: ^1.0.0
+  web_socket_channel: ^3.0.0
 
 dev_dependencies:
+  args: ^2.4.2
   build_runner: ^2.3.3
-  devtools_test: 2.24.0-dev.4
+  devtools_test:
+    path: ../devtools_test
   fake_async: ^1.3.1
-  flutter_test:
-    sdk: flutter
   flutter_driver:
+    sdk: flutter
+  flutter_test:
     sdk: flutter
   integration_test:
     sdk: flutter
-  mockito: ^5.1.0
-  webkit_inspection_protocol: '>=0.5.0 <2.0.0'
-  stager: ^1.0.0
+  mockito: ^5.4.1
+  stager: ^1.0.1
+  stream_channel: ^2.1.1
+  test: ^1.21.0
+  web_benchmarks: ^4.0.0
+  webkit_inspection_protocol: ">=0.5.0 <2.0.0"
 
 flutter:
   uses-material-design: true
   assets:
     - assets/
     - assets/img/
+    - assets/img/doc/
     - assets/img/layout_explorer/
     - assets/img/layout_explorer/cross_axis_alignment/
     - assets/img/layout_explorer/main_axis_alignment/
     - assets/img/legend/
     - icons/
     - icons/actions/
+    - icons/app_bar/
     - icons/custom/
+    - icons/material_symbols/
     - icons/general/
     - icons/gutter/
     - icons/inspector/
@@ -104,26 +107,26 @@ flutter:
     - packages/perfetto_ui_compiled/dist/devtools/devtools_light.css
     - packages/perfetto_ui_compiled/dist/devtools/devtools_shared.css
     - packages/perfetto_ui_compiled/dist/devtools/devtools_theme_handler.js
-    # The version number for all the Perfetto asset paths below is updated by running the
-    # ./tool/update_perfetto.sh script.
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/engine_bundle.js
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/frontend_bundle.js
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/manifest.json
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/perfetto.css
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/trace_processor.wasm
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/assets/brand.png
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/assets/favicon.png
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/assets/logo-128.png
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/assets/logo-3d.png
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/assets/scheduling_latency.png
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/assets/MaterialSymbolsOutlined.woff2
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/assets/Roboto-100.woff2
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/assets/Roboto-300.woff2
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/assets/Roboto-400.woff2
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/assets/Roboto-500.woff2
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/assets/RobotoCondensed-Light.woff2
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/assets/RobotoCondensed-Regular.woff2
-    - packages/perfetto_ui_compiled/dist/v33.0-1838a06af/assets/RobotoMono-Regular.woff2
+    # The version number for all the Perfetto asset paths below is updated by running
+    # `dt update-perfetto`.
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/engine_bundle.js
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/frontend_bundle.js
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/manifest.json
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/perfetto.css
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/trace_processor.wasm
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/assets/brand.png
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/assets/favicon.png
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/assets/logo-128.png
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/assets/logo-3d.png
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/assets/scheduling_latency.png
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/assets/MaterialSymbolsOutlined.woff2
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/assets/Roboto-100.woff2
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/assets/Roboto-300.woff2
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/assets/Roboto-400.woff2
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/assets/Roboto-500.woff2
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/assets/RobotoCondensed-Light.woff2
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/assets/RobotoCondensed-Regular.woff2
+    - packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/assets/RobotoMono-Regular.woff2
 
   fonts:
     - family: Roboto
@@ -155,12 +158,3 @@ flutter:
     - family: Octicons
       fonts:
         - asset: fonts/Octicons.ttf
-    - family: Codicon
-      fonts:
-        - asset: packages/codicon/font/codicon.ttf
-
-dependency_overrides:
-  devtools_shared:
-    path: ../devtools_shared
-  devtools_test:
-    path: ../devtools_test

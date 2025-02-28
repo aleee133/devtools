@@ -1,25 +1,34 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:devtools_app_shared/ui.dart';
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../common_widgets.dart';
-import '../eval_on_dart_library.dart';
-import '../theme.dart';
-import '../utils.dart';
+import 'common_widgets.dart';
 import 'utils.dart';
+
+double get _maxHoverCardHeight => scaleByFontFactor(250.0);
+
+TextStyle get _hoverTitleTextStyle => fixBlurryText(
+  TextStyle(
+    fontWeight: FontWeight.normal,
+    fontSize: scaleByFontFactor(15.0),
+    decoration: TextDecoration.none,
+  ),
+);
 
 /// Regex for valid Dart identifiers.
 final _identifier = RegExp(r'^[a-zA-Z0-9]|_|\$');
 
 /// Returns the word in the [line] for the provided hover [dx] offset given
-/// the [line]'s [textStyle].
+/// the [line]'s `textStyle`.
 String wordForHover(double dx, TextSpan line) {
   String word = '';
   final hoverIndex = _hoverIndexFor(dx, line);
@@ -57,17 +66,33 @@ String wordForHover(double dx, TextSpan line) {
   return word;
 }
 
-/// Returns the index in the Textspan's plainText for which the hover offset is
-/// located.
+bool isPrimitiveValueOrNull(String valueAsString) {
+  if (valueAsString.isEmpty) return false;
+  final isNull = valueAsString == 'null';
+  final isBool = valueAsString == 'true' || valueAsString == 'false';
+  final isInt = int.tryParse(valueAsString) != null;
+  final isDouble = double.tryParse(valueAsString) != null;
+
+  bool isString = false;
+  if (valueAsString.length > 2) {
+    final firstChar = valueAsString[0];
+    final lastChar = valueAsString[valueAsString.length - 1];
+    isString =
+        [firstChar, lastChar].every((char) => char == '"') ||
+        [firstChar, lastChar].every((char) => char == "'");
+  }
+
+  return isNull || isBool || isInt || isDouble || isString;
+}
+
+/// Returns the index in the [TextSpan]'s `plainText` for which the hover offset
+/// is located.
 int _hoverIndexFor(double dx, TextSpan line) {
   int hoverIndex = -1;
   final length = line.toPlainText().length;
   for (var i = 0; i < length; i++) {
-    final painter = TextPainter(
-      text: truncateTextSpan(line, i + 1),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    if (dx <= painter.width) {
+    final textWidth = calculateTextSpanWidth(truncateTextSpan(line, i + 1));
+    if (dx <= textWidth) {
       hoverIndex = i;
       break;
     }
@@ -119,12 +144,11 @@ class HoverCard {
     String? title,
     double? maxCardHeight,
   }) {
-    maxCardHeight ??= maxHoverCardHeight;
+    maxCardHeight ??= _maxHoverCardHeight;
     final overlayState = Overlay.of(context);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final focusColor = theme.focusColor;
-    final hoverHeading = theme.hoverTitleTextStyle;
 
     _overlayEntry = OverlayEntry(
       builder: (context) {
@@ -144,21 +168,21 @@ class HoverCard {
                 color: colorScheme.surface,
                 border: Border.all(
                   color: focusColor,
-                  width: hoverCardBorderWidth,
+                  width: hoverCardBorderSize,
                 ),
-                borderRadius: BorderRadius.circular(defaultBorderRadius),
+                borderRadius: defaultBorderRadius,
               ),
               width: width,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (title != null) ...[
-                    Container(
+                    SizedBox(
                       width: width,
                       child: Text(
                         title,
                         overflow: TextOverflow.ellipsis,
-                        style: hoverHeading,
+                        style: _hoverTitleTextStyle,
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -188,16 +212,16 @@ class HoverCard {
     required HoverCardController hoverCardController,
     String? title,
   }) : this(
-          context: context,
-          contents: contents,
-          width: width,
-          position: Offset(
-            math.max(0, event.position.dx - (width / 2.0)),
-            event.position.dy + _hoverYOffset,
-          ),
-          title: title,
-          hoverCardController: hoverCardController,
-        );
+         context: context,
+         contents: contents,
+         width: width,
+         position: Offset(
+           math.max(0, event.position.dx - (width / 2.0)),
+           event.position.dy + _hoverYOffset,
+         ),
+         title: title,
+         hoverCardController: hoverCardController,
+       );
 
   late OverlayEntry _overlayEntry;
 
@@ -263,18 +287,18 @@ class HoverCardController {
   }
 }
 
-typedef AsyncGenerateHoverCardDataFunc = Future<HoverCardData?> Function({
-  required PointerHoverEvent event,
+typedef AsyncGenerateHoverCardDataFunc =
+    Future<HoverCardData?> Function({
+      required PointerHoverEvent event,
 
-  /// Returns true if the HoverCard is no longer visible.
-  ///
-  /// Use this callback to short circuit long running tasks.
-  required bool Function() isHoverStale,
-});
+      /// Returns true if the HoverCard is no longer visible.
+      ///
+      /// Use this callback to short circuit long running tasks.
+      required bool Function() isHoverStale,
+    });
 
-typedef SyncGenerateHoverCardDataFunc = HoverCardData Function(
-  PointerHoverEvent event,
-);
+typedef SyncGenerateHoverCardDataFunc =
+    HoverCardData Function(PointerHoverEvent event);
 
 /// A hover card based tooltip.
 class HoverCardTooltip extends StatefulWidget {
@@ -286,6 +310,7 @@ class HoverCardTooltip extends StatefulWidget {
   /// from [asyncGenerateHoverCardData] the spinner [HoverCard] will be replaced
   /// with one containing the generated [HoverCardData].
   const HoverCardTooltip.async({
+    super.key,
     required this.enabled,
     required this.asyncGenerateHoverCardData,
     required this.child,
@@ -298,12 +323,13 @@ class HoverCardTooltip extends StatefulWidget {
   /// The [HoverCardData] generated from [generateHoverCardData] will be
   /// displayed in a [HoverCard].
   const HoverCardTooltip.sync({
+    super.key,
     required this.enabled,
     required this.generateHoverCardData,
     required this.child,
     this.disposable,
-  })  : asyncGenerateHoverCardData = null,
-        asyncTimeout = null;
+  }) : asyncGenerateHoverCardData = null,
+       asyncTimeout = null;
 
   static const _hoverDelay = Duration(milliseconds: 500);
   static double get defaultHoverWidth => scaleByFontFactor(450.0);
@@ -328,7 +354,7 @@ class HoverCardTooltip extends StatefulWidget {
   final int? asyncTimeout;
 
   @override
-  _HoverCardTooltipState createState() => _HoverCardTooltipState();
+  State<HoverCardTooltip> createState() => _HoverCardTooltipState();
 }
 
 class _HoverCardTooltipState extends State<HoverCardTooltip> {
@@ -398,9 +424,10 @@ class _HoverCardTooltipState extends State<HoverCardTooltip> {
     HoverCard? spinnerHoverCard;
     final hoverCardDataFuture = asyncGenerateHoverCardData(
       event: event,
-      isHoverStale: () =>
-          spinnerHoverCard != null &&
-          !_hoverCardController.isHoverCardStillActive(spinnerHoverCard),
+      isHoverStale:
+          () =>
+              spinnerHoverCard != null &&
+              !_hoverCardController.isHoverCardStillActive(spinnerHoverCard),
     );
     final hoverCardDataCompleter = _hoverCardDataCompleter(hoverCardDataFuture);
     // If we have set the async hover card to show up only after a timeout,
@@ -420,6 +447,7 @@ class _HoverCardTooltipState extends State<HoverCardTooltip> {
         // Otherwise, show a hover card immediately.
         return _setHoverCardFromData(
           data,
+          // ignore: use_build_context_synchronously, requires investigation
           context: context,
           event: event,
         );
@@ -428,6 +456,7 @@ class _HoverCardTooltipState extends State<HoverCardTooltip> {
     // The data on the card is fetched asynchronously, so show a spinner
     // while we wait for it.
     spinnerHoverCard = HoverCard.fromHoverEvent(
+      // ignore: use_build_context_synchronously, requires investigation
       context: context,
       contents: const CenteredCircularProgressIndicator(),
       width: HoverCardTooltip.defaultHoverWidth,
@@ -435,9 +464,7 @@ class _HoverCardTooltipState extends State<HoverCardTooltip> {
       hoverCardController: _hoverCardController,
     );
 
-    _setHoverCard(
-      spinnerHoverCard,
-    );
+    _setHoverCard(spinnerHoverCard);
 
     // The spinner is showing, we can now generate the HoverCardData
     final hoverCardData = await hoverCardDataCompleter.future;
@@ -455,6 +482,7 @@ class _HoverCardTooltipState extends State<HoverCardTooltip> {
 
     return _setHoverCardFromData(
       hoverCardData,
+      // ignore: use_build_context_synchronously, requires investigation
       context: context,
       event: event,
     );
@@ -490,7 +518,7 @@ class _HoverCardTooltipState extends State<HoverCardTooltip> {
   }
 
   Completer _timeoutCompleter(int timeout) {
-    final completer = Completer();
+    final completer = Completer<void>();
     Timer(Duration(milliseconds: timeout), () {
       completer.complete();
     });

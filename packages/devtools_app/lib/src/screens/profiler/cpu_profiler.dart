@@ -1,23 +1,22 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 
+import 'package:devtools_app_shared/ui.dart';
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/material.dart';
 
 import '../../shared/analytics/constants.dart' as gac;
 import '../../shared/charts/flame_chart.dart';
-import '../../shared/common_widgets.dart';
-import '../../shared/dialogs.dart';
 import '../../shared/globals.dart';
-import '../../shared/primitives/auto_dispose.dart';
 import '../../shared/primitives/utils.dart';
-import '../../shared/theme.dart';
 import '../../shared/ui/colors.dart';
+import '../../shared/ui/common_widgets.dart';
+import '../../shared/ui/filter.dart';
 import '../../shared/ui/search.dart';
 import '../../shared/ui/tab.dart';
-import '../../shared/utils.dart';
 import 'common.dart';
 import 'cpu_profile_model.dart';
 import 'cpu_profiler_controller.dart';
@@ -32,17 +31,18 @@ import 'panes/method_table/method_table_controller.dart';
 
 class CpuProfiler extends StatefulWidget {
   CpuProfiler({
+    super.key,
     required this.data,
     required this.controller,
     List<Key>? searchableTabKeys,
-  })  : callTreeRoots = data.callTreeRoots,
-        bottomUpRoots = data.bottomUpRoots,
-        tabs = [
-          _buildTab(ProfilerTab.bottomUp),
-          _buildTab(ProfilerTab.callTree),
-          _buildTab(ProfilerTab.methodTable),
-          _buildTab(ProfilerTab.cpuFlameChart),
-        ];
+  }) : callTreeRoots = data.callTreeRoots,
+       bottomUpRoots = data.bottomUpRoots,
+       tabs = [
+         _buildTab(ProfilerTab.bottomUp),
+         _buildTab(ProfilerTab.callTree),
+         _buildTab(ProfilerTab.methodTable),
+         _buildTab(ProfilerTab.cpuFlameChart),
+       ];
 
   static DevToolsTab _buildTab(ProfilerTab profilerTab) {
     return DevToolsTab.create(
@@ -62,15 +62,13 @@ class CpuProfiler extends StatefulWidget {
 
   final List<DevToolsTab> tabs;
 
-  static const Key dataProcessingKey = Key('CpuProfiler - data is processing');
-
   static final searchableTabKeys = <Key>[
     ProfilerTab.methodTable.key,
     ProfilerTab.cpuFlameChart.key,
   ];
 
   @override
-  _CpuProfilerState createState() => _CpuProfilerState();
+  State<CpuProfiler> createState() => _CpuProfilerState();
 }
 
 // TODO(kenz): preserve tab controller index when updating CpuProfiler with new
@@ -115,10 +113,7 @@ class _CpuProfilerState extends State<CpuProfiler>
       _tabController.removeListener(_onTabChanged);
       _tabController.dispose();
     }
-    _tabController = TabController(
-      length: widget.tabs.length,
-      vsync: this,
-    );
+    _tabController = TabController(length: widget.tabs.length, vsync: this);
     _tabControllerInitialized = true;
 
     if (widget.controller.selectedProfilerTabIndex >= _tabController.length) {
@@ -146,7 +141,6 @@ class _CpuProfilerState extends State<CpuProfiler>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
     final colorScheme = theme.colorScheme;
     final currentTab = widget.tabs[_tabController.index];
     return Column(
@@ -156,20 +150,19 @@ class _CpuProfilerState extends State<CpuProfiler>
           leftPadding: 0,
           tall: true,
           title: TabBar(
-            labelColor: textTheme.bodyLarge?.color ?? colorScheme.onSurface,
+            labelColor: colorScheme.onSurface,
             isScrollable: true,
             controller: _tabController,
             tabs: widget.tabs,
           ),
           actions: [
-            FilterButton(
+            DevToolsFilterButton(
               onPressed: _showFilterDialog,
               isFilterActive: widget.controller.isFilterActive,
             ),
             const SizedBox(width: denseSpacing),
             if (currentTab.key != ProfilerTab.cpuFlameChart.key &&
                 currentTab.key != ProfilerTab.methodTable.key) ...[
-              const DisplayTreeGuidelinesToggle(),
               const SizedBox(width: denseSpacing),
             ],
             UserTagDropdown(widget.controller),
@@ -193,12 +186,10 @@ class _CpuProfilerState extends State<CpuProfiler>
               if (currentTab.key == ProfilerTab.methodTable.key)
                 SearchField<MethodTableController>(
                   searchController: widget.controller.methodTableController,
-                  containerPadding: EdgeInsets.zero,
                 )
               else
                 SearchField<CpuProfilerController>(
                   searchController: widget.controller,
-                  containerPadding: EdgeInsets.zero,
                 ),
             ],
             if (currentTab.key == ProfilerTab.cpuFlameChart.key) ...[
@@ -206,7 +197,8 @@ class _CpuProfilerState extends State<CpuProfiler>
                 padding: const EdgeInsets.only(left: denseSpacing),
                 child: FlameChartHelpButton(
                   gaScreen: gac.cpuProfiler,
-                  gaSelection: gac.cpuProfileFlameChartHelp,
+                  gaSelection:
+                      gac.CpuProfilerEvents.cpuProfileFlameChartHelp.name,
                   additionalInfo: [
                     ...dialogSubHeader(Theme.of(context), 'Legend'),
                     Legend(
@@ -291,35 +283,21 @@ class _CpuProfilerState extends State<CpuProfiler>
     unawaited(
       showDialog(
         context: context,
-        builder: (context) => CpuProfileFilterDialog(
-          controller: widget.controller,
-        ),
+        builder:
+            (context) => FilterDialog<CpuStackFrame>(
+              controller: widget.controller,
+              filteredItem: 'stack frame',
+            ),
       ),
     );
   }
 
   List<Widget> _buildProfilerViews() {
     final bottomUp = KeepAliveWrapper(
-      child: ValueListenableBuilder<bool>(
-        valueListenable: preferences.cpuProfiler.displayTreeGuidelines,
-        builder: (context, displayTreeGuidelines, _) {
-          return CpuBottomUpTable(
-            bottomUpRoots: widget.bottomUpRoots,
-            displayTreeGuidelines: displayTreeGuidelines,
-          );
-        },
-      ),
+      child: CpuBottomUpTable(bottomUpRoots: widget.bottomUpRoots),
     );
     final callTree = KeepAliveWrapper(
-      child: ValueListenableBuilder<bool>(
-        valueListenable: preferences.cpuProfiler.displayTreeGuidelines,
-        builder: (context, displayTreeGuidelines, _) {
-          return CpuCallTreeTable(
-            dataRoots: widget.callTreeRoots,
-            displayTreeGuidelines: displayTreeGuidelines,
-          );
-        },
-      ),
+      child: CpuCallTreeTable(dataRoots: widget.callTreeRoots),
     );
     final methodTable = KeepAliveWrapper(
       child: CpuMethodTable(
@@ -341,21 +319,17 @@ class _CpuProfilerState extends State<CpuProfiler>
         },
       ),
     );
-    return [
-      bottomUp,
-      callTree,
-      methodTable,
-      cpuFlameChart,
-    ];
+    return [bottomUp, callTree, methodTable, cpuFlameChart];
   }
 
   void _performOnDataRoots(
     void Function(CpuStackFrame root) callback,
     Tab currentTab,
   ) {
-    final roots = currentTab.key == ProfilerTab.callTree.key
-        ? widget.callTreeRoots
-        : widget.bottomUpRoots;
+    final roots =
+        currentTab.key == ProfilerTab.callTree.key
+            ? widget.callTreeRoots
+            : widget.bottomUpRoots;
     setState(() {
       roots.forEach(callback);
     });
@@ -366,7 +340,7 @@ class _CpuProfilerState extends State<CpuProfiler>
 // for filtered profiles (e.g. 'Sample count: 10/14), or to at least show the
 // original value in the tooltip for each of these stats.
 class CpuProfileStats extends StatelessWidget {
-  CpuProfileStats({required this.metadata});
+  CpuProfileStats({super.key, required this.metadata});
 
   final CpuProfileMetaData metadata;
 
@@ -376,15 +350,14 @@ class CpuProfileStats extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final samplePeriodValid = metadata.samplePeriod > 0;
-    final samplingPeriodDisplay = samplePeriodValid
-        ? const Duration(seconds: 1).inMicroseconds ~/ metadata.samplePeriod
-        : '--';
+    final samplingPeriodDisplay =
+        samplePeriodValid
+            ? const Duration(seconds: 1).inMicroseconds ~/ metadata.samplePeriod
+            : '--';
     return RoundedOutlinedBorder.onlyBottom(
       child: Container(
         height: _statsRowHeight,
-        padding: const EdgeInsets.symmetric(
-          horizontal: defaultSpacing,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: defaultSpacing),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [

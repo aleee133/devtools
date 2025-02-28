@@ -1,9 +1,14 @@
+// Copyright 2025 The Flutter Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 import 'dart:collection';
+import 'dart:math';
 
+import 'package:collection/collection.dart';
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
-import '../primitives/auto_dispose.dart';
 import '../primitives/trees.dart';
 import '../primitives/utils.dart';
 import 'column_widths.dart';
@@ -17,11 +22,7 @@ import 'table_data.dart';
 ///   - [FlatTablePinBehavior.pinCopyToTop] creates a copy of the original item
 ///     and inserts it into the list of pinned items, leaving the original item
 ///     in the list of unpinned items.
-enum FlatTablePinBehavior {
-  none,
-  pinOriginalToTop,
-  pinCopyToTop,
-}
+enum FlatTablePinBehavior { none, pinOriginalToTop, pinCopyToTop }
 
 class FlatTableController<T> extends TableControllerBase<T> {
   FlatTableController({
@@ -39,7 +40,7 @@ class FlatTableController<T> extends TableControllerBase<T> {
 
   /// Determines how elements that request to be pinned are displayed.
   ///
-  /// Defaults to [FlatTablePinBehavior.none], which disables pinnning.
+  /// Defaults to [FlatTablePinBehavior.none], which disables pinning.
   FlatTablePinBehavior pinBehavior;
 
   /// Whether the columns for this table should be sized so that the entire
@@ -72,9 +73,7 @@ class FlatTableController<T> extends TableControllerBase<T> {
     if (sortOriginalData) {
       _modifiableOriginalData = data;
     } else {
-      _unmodifiableOriginalData = UnmodifiableListView(
-        List<T>.of(data),
-      );
+      _unmodifiableOriginalData = UnmodifiableListView(List<T>.of(data));
     }
 
     // Look up the UI state for [key], and sort accordingly.
@@ -94,7 +93,7 @@ class FlatTableController<T> extends TableControllerBase<T> {
     ColumnData<T>? secondarySortColumn,
     String? dataKey,
   }) {
-    late List<T> data;
+    List<T> data;
     if (sortOriginalData) {
       data = _modifiableOriginalData;
     } else {
@@ -132,7 +131,7 @@ class FlatTableController<T> extends TableControllerBase<T> {
     }
 
     if (!sizeColumnsToFit) {
-      columnWidths = computeColumnWidthsSizeToContent(data);
+      columnWidths = computeColumnWidthsSizeToContent();
     }
     _tableData.value = TableData<T>(
       data: data,
@@ -154,8 +153,8 @@ class TreeTableController<T extends TreeNode<T>>
     super.columnGroups,
     required this.treeColumn,
     this.autoExpandRoots = false,
-  })  : assert(columns.contains(treeColumn)),
-        assert(columns.contains(defaultSortColumn));
+  }) : assert(columns.contains(treeColumn)),
+       assert(columns.contains(defaultSortColumn));
 
   /// The column of the table to treat as expandable.
   final TreeColumnData<T> treeColumn;
@@ -163,6 +162,8 @@ class TreeTableController<T extends TreeNode<T>>
   final bool autoExpandRoots;
 
   late List<T> dataRoots;
+
+  late int maxTableDepth;
 
   @override
   void setData(List<T> data, String key) {
@@ -172,6 +173,14 @@ class TreeTableController<T extends TreeNode<T>>
         root.expand();
       }
     }
+    // TODO(kenz): instead of using the maximum tree depth, consider using the
+    // maximum depth of expanded nodes.
+    maxTableDepth = dataRoots
+        .map((root) => root.depth)
+        .fold(
+          0,
+          (currentMaxDepth, nextDepth) => max(currentMaxDepth, nextDepth),
+        );
 
     // Look up the UI state for [key], and sort accordingly.
     final uiState = _tableUiStateForKey(key);
@@ -191,57 +200,35 @@ class TreeTableController<T extends TreeNode<T>>
     String? dataKey,
   }) {
     pinnedData = <T>[];
-    final sortFunction = (T a, T b) => _compareData<T>(
-          a,
-          b,
-          column,
-          direction,
-          secondarySortColumn: secondarySortColumn,
-        );
-    void _sort(T dataObject) {
+    int sortFunction(T a, T b) => _compareData<T>(
+      a,
+      b,
+      column,
+      direction,
+      secondarySortColumn: secondarySortColumn,
+    );
+    void sort(T dataObject) {
       dataObject.children
         ..sort(sortFunction)
-        ..forEach(_sort);
+        ..forEach(sort);
     }
 
     dataRoots
       ..sort(sortFunction)
-      ..forEach(_sort);
+      ..forEach(sort);
 
-    _setDataAndNotify(dataKey: dataKey);
+    setDataAndNotify(dataKey: dataKey);
 
     setTableUiState(sortColumn: column, sortDirection: direction);
   }
 
-  void _setDataAndNotify({
-    bool rebuildFlatList = true,
-    List<T> additionalChildrenForColumnWidthComputation = const [],
-    String? dataKey,
-  }) {
-    var dataFlatList = _tableData.value.data;
-    if (rebuildFlatList) {
-      dataFlatList = buildFlatList(dataRoots);
-    }
-    columnWidths = computeColumnWidths(
-      [
-        ...dataFlatList,
-        ...additionalChildrenForColumnWidthComputation,
-      ],
-    );
+  void setDataAndNotify({String? dataKey}) {
+    final dataFlatList = buildFlatList(dataRoots);
+    columnWidths = computeColumnWidths(maxTableDepth);
 
     _tableData.value = TableData<T>(
       data: dataFlatList,
       key: dataKey ?? _tableData.value.key,
-    );
-  }
-
-  void updateDataForAnimatingChildren({
-    required List<T> animatingChildren,
-    bool rebuildFlatList = true,
-  }) {
-    _setDataAndNotify(
-      rebuildFlatList: rebuildFlatList,
-      additionalChildrenForColumnWidthComputation: animatingChildren,
     );
   }
 }
@@ -271,13 +258,13 @@ abstract class TableControllerBase<T> extends DisposableController {
   /// The default sort column for tables using this [TableController].
   ///
   /// The currently active sort column will be stored as part of the
-  /// [_TableUiState] for the current data (stored in [_tableUiStateByData]).
+  /// [TableUiState] for the current data (stored in [_tableUiStateByData]).
   final ColumnData<T> defaultSortColumn;
 
   /// The default [SortDirection] for tables using this [TableController].
   ///
   /// The currently active [SortDirection] will be stored as part of the
-  /// [_TableUiState] for the current data (stored in [_tableUiStateByData]).
+  /// [TableUiState] for the current data (stored in [_tableUiStateByData]).
   final SortDirection defaultSortDirection;
 
   /// The column to be used by the table sorting algorithm to break a tie for
@@ -287,8 +274,9 @@ abstract class TableControllerBase<T> extends DisposableController {
   ScrollController? verticalScrollController;
 
   void initScrollController([double initialScrollOffset = 0.0]) {
-    verticalScrollController =
-        ScrollController(initialScrollOffset: initialScrollOffset);
+    verticalScrollController = ScrollController(
+      initialScrollOffset: initialScrollOffset,
+    );
   }
 
   void storeScrollPosition() {
@@ -314,8 +302,8 @@ abstract class TableControllerBase<T> extends DisposableController {
   /// This value is reset each time [sortDataAndNotify] is called.
   late List<T> pinnedData;
 
-  /// Returns the [_TableUiState] for the current data [_tableData.value].
-  _TableUiState get tableUiState => _tableUiStateForKey(_currentDataKey);
+  /// Returns the [TableUiState] for the current data [_tableData.value].
+  TableUiState get tableUiState => _tableUiStateForKey(_currentDataKey);
 
   /// This method should be overridden by all subclasses.
   void setData(List<T> data, String key);
@@ -326,12 +314,12 @@ abstract class TableControllerBase<T> extends DisposableController {
     ColumnData<T>? secondarySortColumn,
   });
 
-  _TableUiState _tableUiStateForKey(String key) {
+  TableUiState _tableUiStateForKey(String key) {
     var state = TableUiStateStore.lookup(key);
     if (state == null) {
       TableUiStateStore.add(
         key,
-        _TableUiState(
+        TableUiState(
           sortColumnIndex: columns.indexOf(defaultSortColumn),
           sortDirection: defaultSortDirection,
           // Ignore this lint to make it clear what the default values are.
@@ -365,15 +353,14 @@ abstract class TableControllerBase<T> extends DisposableController {
   void dispose() {
     verticalScrollController?.dispose();
     verticalScrollController = null;
+    _tableData.dispose();
     super.dispose();
   }
 }
 
 class TableData<T> {
-  const TableData({
-    required this.data,
-    String? key,
-  }) : key = key ?? defaultDataKey;
+  const TableData({required this.data, String? key})
+    : key = key ?? defaultDataKey;
 
   factory TableData.empty() => TableData<T>(data: const []);
 
@@ -384,8 +371,8 @@ class TableData<T> {
   final String key;
 }
 
-class _TableUiState {
-  _TableUiState({
+class TableUiState {
+  TableUiState({
     required this.sortColumnIndex,
     required this.sortDirection,
     this.scrollOffset = 0.0,
@@ -405,16 +392,16 @@ class _TableUiState {
 // members here allow us to add asserts that guarantee unique keys for tables
 // across DevTools.
 // ignore: avoid_classes_with_only_static_members
-/// Stores the [_TableUiState] for each table, keyed on a unique [String].
+/// Stores the [TableUiState] for each table, keyed on a unique [String].
 ///
 /// This store will remain alive for the entire life of the DevTools instance.
-/// This allows us to cache the [_TableUiState] for tables without having to
+/// This allows us to cache the [TableUiState] for tables without having to
 /// keep table [State] classes or table controller classes alive.
 @visibleForTesting
 abstract class TableUiStateStore<T> {
-  static final _tableUiStateStore = <String, _TableUiState>{};
+  static final _tableUiStateStore = <String, TableUiState>{};
 
-  static void add(String key, _TableUiState value) {
+  static void add(String key, TableUiState value) {
     assert(
       !_tableUiStateStore.containsKey(key),
       '_TableUiState already exists for key: $key',
@@ -422,7 +409,7 @@ abstract class TableUiStateStore<T> {
     _tableUiStateStore[key] = value;
   }
 
-  static _TableUiState? lookup(String key) {
+  static TableUiState? lookup(String key) {
     return _tableUiStateStore[key];
   }
 

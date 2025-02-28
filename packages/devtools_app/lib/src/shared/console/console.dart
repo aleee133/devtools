@@ -1,16 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 
+import 'package:devtools_app_shared/ui.dart';
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../common_widgets.dart';
-import '../primitives/auto_dispose.dart';
 import '../primitives/utils.dart';
-import '../theme.dart';
+import '../ui/common_widgets.dart';
 import 'console_service.dart';
 import 'widgets/expandable_variable.dart';
 
@@ -21,11 +21,7 @@ import 'widgets/expandable_variable.dart';
 /// Renders a Console widget with output [lines] and an optional [title] and
 /// [footer].
 class Console extends StatelessWidget {
-  const Console({
-    required this.lines,
-    this.title,
-    this.footer,
-  }) : super();
+  const Console({super.key, required this.lines, this.title, this.footer});
 
   final Widget? title;
   final Widget? footer;
@@ -41,10 +37,7 @@ class Console extends StatelessWidget {
 }
 
 class ConsoleFrame extends StatelessWidget {
-  const ConsoleFrame({
-    required this.child,
-    this.title,
-  }) : super();
+  const ConsoleFrame({super.key, required this.child, this.title});
 
   final Widget? title;
   final Widget child;
@@ -55,12 +48,7 @@ class ConsoleFrame extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: densePadding),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (title != null) title!,
-          Expanded(
-            child: child,
-          ),
-        ],
+        children: [if (title != null) title!, Expanded(child: child)],
       ),
     );
   }
@@ -70,11 +58,7 @@ class ConsoleFrame extends StatelessWidget {
 ///
 /// This is a ListView of text lines, with a monospace font and a border.
 class _ConsoleOutput extends StatefulWidget {
-  const _ConsoleOutput({
-    Key? key,
-    required this.lines,
-    this.footer,
-  }) : super(key: key);
+  const _ConsoleOutput({required this.lines, this.footer});
 
   final ValueListenable<List<ConsoleLine>> lines;
 
@@ -88,7 +72,7 @@ class _ConsoleOutputState extends State<_ConsoleOutput>
     with AutoDisposeMixin<_ConsoleOutput> {
   // The scroll controller must survive ConsoleOutput re-renders
   // to work as intended, so it must be part of the "state".
-  final ScrollController _scroll = ScrollController();
+  final _scroll = ScrollController();
 
   static const _scrollBarKey = Key('console-scrollbar');
 
@@ -177,45 +161,57 @@ class _ConsoleOutputState extends State<_ConsoleOutput>
       key: _scrollBarKey,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: denseSpacing),
-        child: ListView.separated(
-          padding: const EdgeInsets.all(denseSpacing),
-          itemCount: _currentLines.length + (widget.footer != null ? 1 : 0),
-          controller: _scroll,
-          // Scroll physics to try to keep content within view and avoid bouncing.
-          physics: const ClampingScrollPhysics(
-            parent: RangeMaintainingScrollPhysics(),
-          ),
-          separatorBuilder: (_, __) {
-            return const Divider();
-          },
-          itemBuilder: (context, index) {
-            if (index == _currentLines.length && widget.footer != null) {
-              return widget.footer!;
-            }
-            final line = _currentLines[index];
-            if (line is TextConsoleLine) {
-              return SelectableText.rich(
-                TextSpan(
-                  // TODO(jacobr): consider caching the processed ansi terminal
-                  // codes.
-                  children: processAnsiTerminalCodes(
-                    line.text,
-                    theme.fixedFontStyle,
+        child: SelectionArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Expanded(
+                child: ListView.separated(
+                  padding: const EdgeInsets.all(denseSpacing),
+                  itemCount: _currentLines.length,
+                  controller: _scroll,
+                  // Scroll physics to try to keep content within view and avoid bouncing.
+                  physics: const ClampingScrollPhysics(
+                    parent: RangeMaintainingScrollPhysics(),
                   ),
+                  separatorBuilder: (_, _) {
+                    return const PaddedDivider.noPadding();
+                  },
+                  itemBuilder: (context, index) {
+                    final line = _currentLines[index];
+                    if (line is TextConsoleLine) {
+                      return Text.rich(
+                        TextSpan(
+                          // TODO(jacobr): consider caching the processed ansi terminal
+                          // codes.
+                          children: textSpansFromAnsi(
+                            line.text,
+                            theme.regularTextStyle,
+                          ),
+                        ),
+                      );
+                    } else if (line is VariableConsoleLine) {
+                      return ExpandableVariable(
+                        variable: line.variable,
+                        isSelectable: false,
+                      );
+                    } else {
+                      assert(
+                        false,
+                        'ConsoleLine of unsupported type ${line.runtimeType} encountered',
+                      );
+                      return const SizedBox();
+                    }
+                  },
                 ),
-              );
-            } else if (line is VariableConsoleLine) {
-              return ExpandableVariable(
-                variable: line.variable,
-              );
-            } else {
-              assert(
-                false,
-                'ConsoleLine of unsupported type ${line.runtimeType} encountered',
-              );
-              return const SizedBox();
-            }
-          },
+              ),
+              // consider constraining a max height.
+              Padding(
+                padding: const EdgeInsets.only(top: denseSpacing),
+                child: widget.footer!,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -230,6 +226,7 @@ class _ConsoleOutputState extends State<_ConsoleOutput>
 /// and the `onPressed` function passed from the outside.
 class DeleteControl extends StatelessWidget {
   const DeleteControl({
+    super.key,
     this.onPressed,
     this.tooltip = 'Clear contents',
     this.buttonKey,
@@ -243,6 +240,7 @@ class DeleteControl extends StatelessWidget {
   Widget build(BuildContext context) {
     return ToolbarAction(
       icon: Icons.delete,
+      size: defaultIconSize,
       tooltip: tooltip,
       onPressed: onPressed,
       key: buttonKey,

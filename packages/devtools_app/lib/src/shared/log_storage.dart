@@ -1,18 +1,21 @@
-// Copyright 2023 The Chromium Authors. All rights reserved.
+// Copyright 2023 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:collection';
 import 'dart:convert';
+
 import 'package:logging/logging.dart';
+
+import 'primitives/utils.dart';
 
 /// Class for storing a limited number string messages.
 class LogStorage {
-  static const int maxLogEntries = 4000;
+  static const maxLogEntries = 4000;
 
-  final Queue<LogRecord> _logs = Queue<LogRecord>();
+  final _logs = Queue<LogRecord>();
 
-  /// Adds [message] to the end of the log queue.
+  /// Adds [record] to the end of the log queue.
   ///
   /// If there are more than [maxLogEntries] messages in the logs, then the
   /// oldest message will be removed from the queue.
@@ -45,9 +48,9 @@ class LogStorage {
             if (e.stackTrace != null) 'stackTrace': e.stackTrace.toString(),
           }),
         )
-        .join('\n');
+        .joinWithTrailing('\n');
   }
 
   /// Static instance for storing the app's logs.
-  static final LogStorage root = LogStorage();
+  static final root = LogStorage();
 }

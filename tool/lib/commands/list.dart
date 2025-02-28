@@ -1,10 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 
 import 'package:args/command_runner.dart';
+import 'package:path/path.dart' as path;
 
 import '../model.dart';
 
@@ -17,15 +18,15 @@ class ListCommand extends Command {
 
   @override
   Future run() async {
-    final repo = DevToolsRepo.getInstance()!;
+    final repo = DevToolsRepo.getInstance();
     print('DevTools repo at ${repo.repoPath}.');
 
     final packages = repo.getPackages();
 
     print('\n${packages.length} packages:');
 
-    for (Package p in packages) {
-      print('  ${p.relativePath}/');
+    for (final p in packages) {
+      print('  ${p.relativePath}${path.separator}');
     }
   }
 }

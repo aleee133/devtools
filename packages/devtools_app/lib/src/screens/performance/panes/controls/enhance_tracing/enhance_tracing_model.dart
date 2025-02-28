@@ -1,6 +1,6 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'package:flutter/foundation.dart';
 
@@ -17,8 +17,6 @@ class EnhanceTracingState {
   final bool builds;
   final bool layouts;
   final bool paints;
-
-  bool get enhanced => builds || layouts || paints;
 
   bool enhancedFor(FramePhaseType type) {
     switch (type) {

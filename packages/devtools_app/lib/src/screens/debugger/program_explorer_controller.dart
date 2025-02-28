@@ -1,16 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/foundation.dart';
 import 'package:vm_service/vm_service.dart';
 
 import '../../shared/globals.dart';
-import '../../shared/primitives/auto_dispose.dart';
 import '../../shared/primitives/trees.dart';
-import '../../shared/primitives/utils.dart';
 import '../vm_developer/vm_service_private_extensions.dart';
 import 'program_explorer_model.dart';
 
@@ -18,9 +17,7 @@ class ProgramExplorerController extends DisposableController
     with AutoDisposeControllerMixin {
   /// [showCodeNodes] controls whether or not [Code] nodes are displayed in the
   /// outline view.
-  ProgramExplorerController({
-    this.showCodeNodes = false,
-  });
+  ProgramExplorerController({this.showCodeNodes = false});
 
   /// The outline view nodes for the currently selected library.
   ValueListenable<List<VMServiceObjectNode>> get outlineNodes => _outlineNodes;
@@ -72,23 +69,22 @@ class ProgramExplorerController extends DisposableController
     }
     _initializing = true;
 
-    final isolate = serviceManager.isolateManager.selectedIsolate.value;
-    final libraries = isolate != null
-        ? serviceManager.isolateManager
-            .isolateState(isolate)
-            .isolateNow!
-            .libraries!
-        : <LibraryRef>[];
+    final isolate =
+        serviceConnection.serviceManager.isolateManager.selectedIsolate.value;
+    final libraries =
+        isolate != null
+            ? serviceConnection.serviceManager.isolateManager
+                .isolateState(isolate)
+                .isolateNow!
+                .libraries!
+            : <LibraryRef>[];
 
     if (scriptManager.sortedScripts.value.isEmpty && isolate != null) {
       await scriptManager.retrieveAndSortScripts(isolate);
     }
 
     // Build the initial tree.
-    final nodes = VMServiceObjectNode.createRootsFrom(
-      this,
-      libraries,
-    );
+    final nodes = VMServiceObjectNode.createRootsFrom(this, libraries);
     rootObjectNodesInternal.replaceAll(nodes);
     _initialized.value = true;
   }
@@ -97,10 +93,7 @@ class ProgramExplorerController extends DisposableController
     // Re-initialize after reload.
     // TODO(elliette): If file was opened from before the reload, we should try
     // to open that one instead of the entrypoint file.
-    addAutoDisposeListener(
-      scriptManager.sortedScripts,
-      refresh,
-    );
+    addAutoDisposeListener(scriptManager.sortedScripts, refresh);
   }
 
   Future<void> selectScriptNode(ScriptRef? script) async {
@@ -119,7 +112,8 @@ class ProgramExplorerController extends DisposableController
     ScriptRef? script,
     List<VMServiceObjectNode> nodes,
   ) async {
-    final searchCondition = (node) => node.script?.uri == script!.uri;
+    bool searchCondition(VMServiceObjectNode node) =>
+        node.script?.uri == script!.uri;
     for (final node in nodes) {
       final result = node.firstChildWithCondition(searchCondition);
       if (result != null) {
@@ -139,7 +133,7 @@ class ProgramExplorerController extends DisposableController
   }
 
   int _calculateNodeIndex({
-    bool matchingNodeCondition(VMServiceObjectNode node)?,
+    bool Function(VMServiceObjectNode node)? matchingNodeCondition,
     bool includeCollapsedNodes = true,
   }) {
     // Index tracks the position of the node in the flat-list representation of
@@ -149,9 +143,10 @@ class ProgramExplorerController extends DisposableController
       final matchingNode = depthFirstTraversal(
         node,
         returnCondition: matchingNodeCondition,
-        exploreChildrenCondition: includeCollapsedNodes
-            ? null
-            : (VMServiceObjectNode node) => node.isExpanded,
+        exploreChildrenCondition:
+            includeCollapsedNodes
+                ? null
+                : (VMServiceObjectNode node) => node.isExpanded,
         action: (VMServiceObjectNode _) => index++,
       );
       if (matchingNode != null) return index;
@@ -249,52 +244,54 @@ class ProgramExplorerController extends DisposableController
   /// immediately returns.
   Future<void> populateNode(VMServiceObjectNode node) async {
     final object = node.object;
-    final service = serviceManager.service;
-    final isolateId = serviceManager.isolateManager.selectedIsolate.value!.id;
+    final service = serviceConnection.serviceManager.service;
+    final isolateId =
+        serviceConnection
+            .serviceManager
+            .isolateManager
+            .selectedIsolate
+            .value!
+            .id;
 
     Future<List<Obj>> getObjects(Iterable<ObjRef> objs) {
-      return Future.wait(
-        objs.map(
-          (o) => service!.getObject(isolateId!, o.id!),
-        ),
-      );
+      return objs.map((o) => service!.getObject(isolateId!, o.id!)).wait;
     }
 
     Future<List<Func>> getFuncs(
       Iterable<FuncRef> funcs,
       Iterable<FieldRef>? fields,
     ) async {
-      final res = await Future.wait<Func>(
-        funcs
-            .where((f) => !_isSyntheticAccessor(f, fields as List<FieldRef>))
-            .map<Future<Func>>(
-              (f) => service!.getObject(isolateId!, f.id!).then((f) async {
-                final func = f as Func;
-                final codeRef = func.code;
+      return await funcs
+          .where((f) => !_isSyntheticAccessor(f, fields as List<FieldRef>))
+          .map<Future<Func>>(
+            (f) => service!.getObject(isolateId!, f.id!).then((f) async {
+              final func = f as Func;
+              final codeRef = func.code;
 
-                // Populate the [Code] objects in each function if we want to
-                // show code nodes in the outline.
-                if (showCodeNodes && codeRef != null) {
-                  final code =
-                      await service.getObject(isolateId, codeRef.id!) as Code;
-                  func.code = code;
-                  Code unoptimizedCode = code;
-                  // `func.code` could be unoptimized code, so don't bother
-                  // fetching it again.
-                  if (func.unoptimizedCode != null &&
-                      func.unoptimizedCode?.id! != code.id!) {
-                    unoptimizedCode = await service.getObject(
-                      isolateId,
-                      func.unoptimizedCode!.id!,
-                    ) as Code;
-                  }
-                  func.unoptimizedCode = unoptimizedCode;
+              // Populate the [Code] objects in each function if we want to
+              // show code nodes in the outline.
+              if (showCodeNodes && codeRef != null) {
+                final code =
+                    await service.getObject(isolateId, codeRef.id!) as Code;
+                func.code = code;
+                Code unoptimizedCode = code;
+                // `func.code` could be unoptimized code, so don't bother
+                // fetching it again.
+                if (func.unoptimizedCode != null &&
+                    func.unoptimizedCode?.id! != code.id!) {
+                  unoptimizedCode =
+                      await service.getObject(
+                            isolateId,
+                            func.unoptimizedCode!.id!,
+                          )
+                          as Code;
                 }
-                return func;
-              }),
-            ),
-      );
-      return res.cast<Func>();
+                func.unoptimizedCode = unoptimizedCode;
+              }
+              return func;
+            }),
+          )
+          .wait;
     }
 
     try {
@@ -302,21 +299,23 @@ class ProgramExplorerController extends DisposableController
         return;
       } else if (object is LibraryRef) {
         final lib = await service!.getObject(isolateId!, object.id!) as Library;
-        final results = await Future.wait([
-          getObjects(lib.variables!),
-          getFuncs(lib.functions!, lib.variables),
-        ]);
-        lib.variables = results[0].cast<Field>();
-        lib.functions = results[1].cast<Func>();
+        final (variableObjects, functionObjects) =
+            await (
+              getObjects(lib.variables!),
+              getFuncs(lib.functions!, lib.variables),
+            ).wait;
+        lib.variables = variableObjects.cast<Field>();
+        lib.functions = functionObjects;
         node.updateObject(lib);
       } else if (object is ClassRef) {
         final clazz = await service!.getObject(isolateId!, object.id!) as Class;
-        final results = await Future.wait([
-          getObjects(clazz.fields!),
-          getFuncs(clazz.functions!, clazz.fields),
-        ]);
-        clazz.fields = results[0].cast<Field>();
-        clazz.functions = results[1].cast<Func>();
+        final (fieldObjects, functionObjects) =
+            await (
+              getObjects(clazz.fields!),
+              getFuncs(clazz.functions!, clazz.fields),
+            ).wait;
+        clazz.fields = fieldObjects.cast<Field>();
+        clazz.functions = functionObjects;
         node.updateObject(clazz);
       } else {
         final obj = await service!.getObject(isolateId!, object.id!);
@@ -330,8 +329,14 @@ class ProgramExplorerController extends DisposableController
   /// Searches and returns the script or library node in the FileExplorer
   /// which is the source location of the target [object].
   Future<VMServiceObjectNode> searchFileExplorer(ObjRef object) async {
-    final service = serviceManager.service!;
-    final isolateId = serviceManager.isolateManager.selectedIsolate.value!.id!;
+    final service = serviceConnection.serviceManager.service!;
+    final isolateId =
+        serviceConnection
+            .serviceManager
+            .isolateManager
+            .selectedIsolate
+            .value!
+            .id!;
 
     // If `object` is a library, it will always be a root node and is simple to
     // find.
@@ -343,26 +348,23 @@ class ProgramExplorerController extends DisposableController
 
     // Otherwise, we need to find the target script to determine the library
     // the target node is listed under.
-    ScriptRef? targetScript;
-    if (object is ClassRef) {
-      targetScript = object.location?.script;
-    } else if (object is FieldRef) {
-      targetScript = object.location?.script;
-    } else if (object is FuncRef) {
-      targetScript = object.location?.script;
-    } else if (object is Code) {
-      final ownerFunction = object.function;
-      targetScript = ownerFunction?.location?.script;
-    } else if (object is ScriptRef) {
-      targetScript = object;
-    }
+    final targetScript = switch (object) {
+      ClassRef(:final location?) ||
+      FieldRef(:final location?) ||
+      FuncRef(:final location?) => location.script,
+      Code(:final function?) when function is FuncRef =>
+        function.location?.script,
+      ScriptRef() => object,
+      _ => null,
+    };
+
     if (targetScript == null) {
       throw StateError('Could not find script');
     }
 
     final scriptObj =
         await service.getObject(isolateId, targetScript.id!) as Script;
-    final LibraryRef targetLib = scriptObj.library!;
+    final targetLib = scriptObj.library!;
 
     // Search targetLib only on the root level nodes (this is the most common
     // scenario).
@@ -371,10 +373,7 @@ class ProgramExplorerController extends DisposableController
     // If we couldn't find the target library as a root node, it's possible we
     // have a library defined using the `library` keyword by the user, which
     // will likely be under a directory node.
-    libNode ??= breadthFirstSearchObject(
-      scriptObj,
-      rootObjectNodes.value,
-    );
+    libNode ??= breadthFirstSearchObject(scriptObj, rootObjectNodes.value);
 
     // If the object's owning script URI is the same as the target library URI,
     // return the library node as the match.
@@ -419,5 +418,17 @@ class ProgramExplorerController extends DisposableController
       }
     }
     return null;
+  }
+
+  @override
+  void dispose() {
+    _outlineNodes.dispose();
+    _isLoadingOutline.dispose();
+    rootObjectNodesInternal.dispose();
+    _selectedNodeIndex.dispose();
+    _initialized.dispose();
+    _scriptSelection = null;
+    _outlineSelection = null;
+    super.dispose();
   }
 }

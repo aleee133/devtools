@@ -1,18 +1,21 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
+import 'package:devtools_app_shared/ui.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../shared/analytics/constants.dart' as gac;
-import '../../../../shared/common_widgets.dart';
+import '../../../../shared/framework/screen.dart';
 import '../../../../shared/globals.dart';
-import '../../../../shared/theme.dart';
+import '../../../../shared/ui/common_widgets.dart';
+import '../../../../shared/ui/file_import.dart';
 import '../../../../shared/ui/vm_flag_widgets.dart';
 import '../../profiler_screen_controller.dart';
 
 class ProfilerScreenControls extends StatelessWidget {
   const ProfilerScreenControls({
+    super.key,
     required this.controller,
     required this.recording,
     required this.processing,
@@ -29,36 +32,28 @@ class ProfilerScreenControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // TODO(kenz): use the [OfflineAwareControls] helper widget.
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        if (offline)
-          Padding(
-            padding: const EdgeInsets.only(right: defaultSpacing),
-            child: ExitOfflineButton(gaScreen: gac.cpuProfiler),
-          )
-        else ...[
-          _PrimaryControls(
-            controller: controller,
-            recording: recording,
-          ),
-          const SizedBox(width: defaultSpacing),
-          _SecondaryControls(
-            controller: controller,
-            profilerBusy: recording || processing,
-          ),
-        ],
-      ],
+    return OfflineAwareControls(
+      gaScreen: gac.cpuProfiler,
+      controlsBuilder: (offline) {
+        if (offline) return const SizedBox.shrink();
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _PrimaryControls(controller: controller, recording: recording),
+            const SizedBox(width: defaultSpacing),
+            _SecondaryControls(
+              controller: controller,
+              profilerBusy: recording || processing,
+            ),
+          ],
+        );
+      },
     );
   }
 }
 
 class _PrimaryControls extends StatelessWidget {
-  const _PrimaryControls({
-    required this.controller,
-    required this.recording,
-  });
+  const _PrimaryControls({required this.controller, required this.recording});
 
   static const _primaryControlsMinIncludeTextWidth = 1170.0;
 
@@ -70,22 +65,14 @@ class _PrimaryControls extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        RecordButton(
+        StartStopRecordingButton(
           recording: recording,
           gaScreen: gac.cpuProfiler,
-          gaSelection: gac.record,
+          gaSelection: recording ? gac.stop : gac.record,
           minScreenWidthForTextBeforeScaling:
               _primaryControlsMinIncludeTextWidth,
-          onPressed: controller.startRecording,
-        ),
-        const SizedBox(width: denseSpacing),
-        StopRecordingButton(
-          recording: recording,
-          gaScreen: gac.cpuProfiler,
-          gaSelection: gac.stop,
-          minScreenWidthForTextBeforeScaling:
-              _primaryControlsMinIncludeTextWidth,
-          onPressed: controller.stopRecording,
+          onPressed:
+              recording ? controller.stopRecording : controller.startRecording,
         ),
         const SizedBox(width: denseSpacing),
         ClearButton(
@@ -106,9 +93,7 @@ class _SecondaryControls extends StatelessWidget {
     required this.profilerBusy,
   });
 
-  static const _secondaryControlsMinScreenWidthForText = 1170.0;
-
-  static const _profilingControlsMinScreenWidthForText = 875.0;
+  static const _profilingControlsMinScreenWidthForText = 930.0;
 
   final ProfilerScreenController controller;
 
@@ -119,32 +104,39 @@ class _SecondaryControls extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
-        if (serviceManager.connectedApp!.isFlutterNativeAppNow)
-          DevToolsButton(
+        if (serviceConnection
+            .serviceManager
+            .connectedApp!
+            .isFlutterNativeAppNow)
+          GaDevToolsButton(
             icon: Icons.timer,
             label: 'Profile app start up',
-            tooltip: 'Load all Dart CPU samples that occurred before \n'
+            tooltip:
+                'Load all Dart CPU samples that occurred before \n'
                 'the first Flutter frame was drawn (if available)',
             tooltipPadding: const EdgeInsets.all(denseSpacing),
             gaScreen: gac.cpuProfiler,
-            gaSelection: gac.profileAppStartUp,
+            gaSelection: gac.CpuProfilerEvents.profileAppStartUp.name,
             minScreenWidthForTextBeforeScaling:
                 _profilingControlsMinScreenWidthForText,
-            onPressed: !profilerBusy
-                ? controller.cpuProfilerController.loadAppStartUpProfile
-                : null,
+            onPressed:
+                !profilerBusy
+                    ? controller.cpuProfilerController.loadAppStartUpProfile
+                    : null,
           ),
         const SizedBox(width: denseSpacing),
         RefreshButton(
           label: 'Load all CPU samples',
-          tooltip: 'Load all available CPU samples from the profiler',
+          tooltip:
+              'Load all CPU samples for the connected app. This is the data \ncollected by the VM and is limited by the available buffer space.',
           gaScreen: gac.cpuProfiler,
-          gaSelection: gac.loadAllCpuSamples,
+          gaSelection: gac.CpuProfilerEvents.loadAllCpuSamples.name,
           minScreenWidthForTextBeforeScaling:
               _profilingControlsMinScreenWidthForText,
-          onPressed: !profilerBusy
-              ? controller.cpuProfilerController.loadAllSamples
-              : null,
+          onPressed:
+              !profilerBusy
+                  ? controller.cpuProfilerController.loadAllSamples
+                  : null,
         ),
         const SizedBox(width: denseSpacing),
         CpuSamplingRateDropdown(
@@ -153,15 +145,14 @@ class _SecondaryControls extends StatelessWidget {
               controller.cpuProfilerController.profilePeriodFlag!,
         ),
         const SizedBox(width: denseSpacing),
-        ExportButton(
-          gaScreen: gac.cpuProfiler,
-          onPressed: !profilerBusy &&
-                  controller.cpuProfileData != null &&
-                  controller.cpuProfileData?.isEmpty == false
-              ? _exportPerformance
-              : null,
-          minScreenWidthForTextBeforeScaling:
-              _secondaryControlsMinScreenWidthForText,
+        OpenSaveButtonGroup(
+          screenId: ScreenMetaData.cpuProfiler.id,
+          onSave:
+              !profilerBusy &&
+                      controller.cpuProfileData != null &&
+                      controller.cpuProfileData?.isEmpty == false
+                  ? (_) => _exportPerformance()
+                  : null,
         ),
       ],
     );

@@ -1,11 +1,14 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
+
+// ignore_for_file: avoid_print
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:collection/collection.dart';
 import 'package:vm_service/utils.dart';
 import 'package:vm_service/vm_service.dart';
 import 'package:vm_service/vm_service_io.dart';
@@ -48,12 +51,12 @@ class AppFixture {
 
   Future<void> get onAppStarted => _onAppStarted;
 
-  IsolateRef? get mainIsolate => isolates.isEmpty ? null : isolates.first;
+  IsolateRef? get mainIsolate => isolates.firstOrNull;
 
-  Future<dynamic> invoke(String expression) async {
-    final IsolateRef isolateRef = mainIsolate!;
-    final String isolateId = isolateRef.id!;
-    final Isolate isolate = await serviceConnection.getIsolate(isolateId);
+  Future<Response> invoke(String expression) async {
+    final isolateRef = mainIsolate!;
+    final isolateId = isolateRef.id!;
+    final isolate = await serviceConnection.getIsolate(isolateId);
 
     return await serviceConnection.evaluate(
       isolateId,
@@ -97,16 +100,15 @@ class CliAppFixture extends AppFixture {
     final dartVmServicePrefix =
         RegExp('(Observatory|The Dart VM service is) listening on ');
 
-    final Process process = await Process.start(
+    final process = await Process.start(
       Platform.resolvedExecutable,
       <String>['--observe=0', '--pause-isolates-on-start', appScriptPath],
     );
 
     final Stream<String> lines =
         process.stdout.transform(utf8.decoder).transform(const LineSplitter());
-    final StreamController<String> lineController =
-        StreamController<String>.broadcast();
-    final Completer<String> completer = Completer<String>();
+    final lineController = StreamController<String>.broadcast();
+    final completer = Completer<String>();
 
     final linesSubscription = lines.listen((String line) {
       if (completer.isCompleted) {
@@ -121,9 +123,8 @@ class CliAppFixture extends AppFixture {
     });
 
     // Observatory listening on http://127.0.0.1:9595/(token)
-    final String observatoryText = await completer.future;
-    final String observatoryUri =
-        observatoryText.replaceAll(dartVmServicePrefix, '');
+    final observatoryText = await completer.future;
+    final observatoryUri = observatoryText.replaceAll(dartVmServicePrefix, '');
     var uri = Uri.parse(observatoryUri);
 
     if (!uri.isAbsolute) {
@@ -133,16 +134,14 @@ class CliAppFixture extends AppFixture {
     // Map to WS URI.
     uri = convertToWebSocketUrl(serviceProtocolUrl: uri);
 
-    final VmService serviceConnection =
-        await vmServiceConnectUri(uri.toString());
+    final serviceConnection = await vmServiceConnectUri(uri.toString());
 
-    final VM vm = await serviceConnection.getVM();
+    final vm = await serviceConnection.getVM();
 
-    final Isolate isolate =
-        await _waitForIsolate(serviceConnection, 'PauseStart');
+    final isolate = await _waitForIsolate(serviceConnection, 'PauseStart');
     await serviceConnection.resume(isolate.id!);
 
-    Future<void> _onTeardown() async {
+    Future<void> onTeardown() async {
       await linesSubscription.cancel();
       await lineController.close();
     }
@@ -154,7 +153,7 @@ class CliAppFixture extends AppFixture {
       uri,
       serviceConnection,
       vm.isolates!,
-      _onTeardown,
+      onTeardown,
     );
   }
 
@@ -166,24 +165,21 @@ class CliAppFixture extends AppFixture {
     await waitFor(() async {
       const skipId = 'skip';
       final vm = await serviceConnection.getVM();
-      final List<Isolate?> isolates = await Future.wait(
-        vm.isolates!.map(
-          (ref) => serviceConnection
-              .getIsolate(ref.id!)
-              // Calling getIsolate() can sometimes return a collected sentinel
-              // for an isolate that hasn't started yet. We can just ignore these
-              // as on the next trip around the Isolate will be returned.
-              // https://github.com/dart-lang/sdk/issues/33747
-              .catchError((error) {
-            print('getIsolate(${ref.id}) failed, skipping\n$error');
-            return Future<Isolate>.value(Isolate(id: skipId));
-          }),
-        ),
-      );
-      foundIsolate = isolates.firstWhere(
+      final isolates = await vm.isolates!
+          .map((ref) => serviceConnection
+                  .getIsolate(ref.id!)
+                  // Calling getIsolate() can sometimes return a collected sentinel
+                  // for an isolate that hasn't started yet. We can just ignore these
+                  // as on the next trip around the Isolate will be returned.
+                  // https://github.com/dart-lang/sdk/issues/33747
+                  .catchError((Object error) {
+                print('getIsolate(${ref.id}) failed, skipping\n$error');
+                return Future<Isolate>.value(Isolate(id: skipId));
+              }))
+          .wait;
+      foundIsolate = isolates.firstWhereOrNull(
         (isolate) =>
-            isolate!.id != skipId && isolate.pauseEvent?.kind == pauseEventKind,
-        orElse: () => null,
+            isolate.id != skipId && isolate.pauseEvent?.kind == pauseEventKind,
       );
       return foundIsolate != null;
     });
@@ -207,8 +203,8 @@ class CliAppFixture extends AppFixture {
   }
 
   static List<int> _parseLines(String source, String keyword) {
-    final List<String> lines = source.replaceAll('\r', '').split('\n');
-    final List<int> matches = [];
+    final lines = source.replaceAll('\r', '').split('\n');
+    final matches = <int>[];
 
     for (int i = 0; i < lines.length; i++) {
       if (lines[i].endsWith('// $keyword')) {

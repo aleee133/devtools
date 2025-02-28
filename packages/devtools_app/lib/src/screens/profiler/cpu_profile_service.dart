@@ -1,17 +1,16 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'package:vm_service/vm_service.dart';
 
 import '../../service/vm_flags.dart' as vm_flags;
-import '../../service/vm_service_wrapper.dart';
 import '../../shared/globals.dart';
 import '../vm_developer/vm_service_private_extensions.dart';
 import 'cpu_profile_model.dart';
 
 /// Manages interactions between the Cpu Profiler and the VmService.
-extension CpuProfilerExtension on VmServiceWrapper {
+extension CpuProfilerExtension on VmService {
   Future<CpuProfilePair> getCpuProfile({
     required int startMicros,
     required int extentMicros,
@@ -19,12 +18,15 @@ extension CpuProfilerExtension on VmServiceWrapper {
     // Grab the value of this flag before doing asynchronous work.
     final vmDeveloperModeEnabled = preferences.vmDeveloperModeEnabled.value;
 
-    final isolateId = serviceManager.isolateManager.selectedIsolate.value!.id!;
-    final cpuSamples = await serviceManager.service!.getCpuSamples(
-      isolateId,
-      startMicros,
-      extentMicros,
-    );
+    final isolateId =
+        serviceConnection
+            .serviceManager
+            .isolateManager
+            .selectedIsolate
+            .value!
+            .id!;
+    final cpuSamples = await serviceConnection.serviceManager.service!
+        .getCpuSamples(isolateId, startMicros, extentMicros);
 
     // If VM developer mode is enabled, getCpuSamples will also include code
     // profile details automatically (e.g., code stacks and a list of code
@@ -36,7 +38,7 @@ extension CpuProfilerExtension on VmServiceWrapper {
     const kCodeStack = '_codeStack';
 
     final rawSamples =
-        (cpuSamples.json![kSamples] as List).cast<Map<String, dynamic>>();
+        (cpuSamples.json![kSamples] as List).cast<Map<String, Object?>>();
 
     bool buildCodeProfile = false;
     if (rawSamples.isNotEmpty && rawSamples.first.containsKey(kCodeStack)) {
@@ -48,7 +50,8 @@ extension CpuProfilerExtension on VmServiceWrapper {
       for (int i = 0; i < samples.length; ++i) {
         final cpuSample = samples[i];
         final rawSample = rawSamples[i];
-        cpuSample.setCodeStack(rawSample[kCodeStack].cast<int>());
+        final codeStack = (rawSample[kCodeStack] as List).cast<int>();
+        cpuSample.setCodeStack(codeStack);
       }
     }
 
@@ -71,16 +74,27 @@ extension CpuProfilerExtension on VmServiceWrapper {
   }
 
   Future clearSamples() {
-    return serviceManager.service!.clearCpuSamples(
-      serviceManager.isolateManager.selectedIsolate.value!.id!,
+    return serviceConnection.serviceManager.service!.clearCpuSamples(
+      serviceConnection
+          .serviceManager
+          .isolateManager
+          .selectedIsolate
+          .value!
+          .id!,
     );
   }
 
   Future<Response> setProfilePeriod(String value) {
-    return serviceManager.service!.setFlag(vm_flags.profilePeriod, value);
+    return serviceConnection.serviceManager.service!.setFlag(
+      vm_flags.profilePeriod,
+      value,
+    );
   }
 
   Future<Response> enableCpuProfiler() async {
-    return await serviceManager.service!.setFlag(vm_flags.profiler, 'true');
+    return await serviceConnection.serviceManager.service!.setFlag(
+      vm_flags.profiler,
+      'true',
+    );
   }
 }

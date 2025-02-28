@@ -1,11 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 import 'dart:math';
-import 'dart:ui';
 
+import 'package:devtools_app_shared/ui.dart';
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vm_service/vm_service.dart';
@@ -13,26 +14,24 @@ import 'package:vm_service/vm_service.dart';
 import '../../analytics/analytics.dart' as ga;
 import '../../analytics/constants.dart' as gac;
 import '../../globals.dart';
-import '../../primitives/auto_dispose.dart';
-import '../../theme.dart';
 import '../../ui/search.dart';
 import '../../ui/utils.dart';
+import '../../utils/utils.dart';
 import '../eval/auto_complete.dart';
 import '../eval/eval_service.dart';
 import '../primitives/assignment.dart';
 import '../primitives/eval_history.dart';
 import 'help_dialog.dart';
 
-typedef AutoCompleteResultsFunction = Future<List<String>> Function(
-  EditingParts parts,
-  EvalService evalService,
-);
+typedef AutoCompleteResultsFunction =
+    Future<List<String>> Function(EditingParts parts, EvalService evalService);
 
 class ExpressionEvalField extends StatefulWidget {
   const ExpressionEvalField({
+    super.key,
     AutoCompleteResultsFunction? getAutoCompleteResults,
   }) : getAutoCompleteResults =
-            getAutoCompleteResults ?? autoCompleteResultsFor;
+           getAutoCompleteResults ?? autoCompleteResultsFor;
 
   final AutoCompleteResultsFunction getAutoCompleteResults;
 
@@ -63,7 +62,7 @@ class ExpressionEvalFieldState extends State<ExpressionEvalField>
   void initState() {
     super.initState();
 
-    serviceManager.consoleService.ensureServiceInitialized();
+    serviceConnection.consoleService.ensureServiceInitialized();
 
     addAutoDisposeListener(_autoCompleteController.searchNotifier, () {
       _autoCompleteController.handleAutoCompleteOverlay(
@@ -76,7 +75,7 @@ class ExpressionEvalFieldState extends State<ExpressionEvalField>
     });
     addAutoDisposeListener(
       _autoCompleteController.selectTheSearchNotifier,
-      _handleSearch,
+      _handleSearchTermSelected,
     );
     addAutoDisposeListener(
       _autoCompleteController.searchNotifier,
@@ -134,16 +133,17 @@ class ExpressionEvalFieldState extends State<ExpressionEvalField>
     }
   }
 
-  void _handleSearch() async {
+  void _handleSearchTermSelected() {
+    _autoCompleteController.clearCurrentSuggestion();
+  }
+
+  Future<void> _handleSearch() async {
     final searchingValue = _autoCompleteController.search;
 
     _autoCompleteController.clearCurrentSuggestion();
 
     if (searchingValue.isNotEmpty) {
-      if (_autoCompleteController.selectTheSearch) {
-        _autoCompleteController.resetSearch();
-        return;
-      }
+      if (_autoCompleteController.selectTheSearch) return;
 
       // We avoid clearing the list of possible matches here even though the
       // current matches may be out of date as clearing results in flicker
@@ -172,18 +172,16 @@ class ExpressionEvalFieldState extends State<ExpressionEvalField>
 
       if (matches.length == 1 && matches.first == parts.activeWord) {
         // It is not useful to show a single autocomplete that is exactly what
-        // the already typed.
+        // they already typed.
         _autoCompleteController
           ..clearSearchAutoComplete()
           ..clearCurrentSuggestion();
       } else {
-        final results = matches
-            .sublist(
-              0,
-              min(defaultTopMatchesLimit, matches.length),
-            )
-            .map((match) => AutoCompleteMatch(match))
-            .toList();
+        final results =
+            matches
+                .sublist(0, min(defaultTopMatchesLimit, matches.length))
+                .map((match) => AutoCompleteMatch(match))
+                .toList();
 
         _autoCompleteController
           ..searchAutoComplete.value = results
@@ -200,17 +198,18 @@ class ExpressionEvalFieldState extends State<ExpressionEvalField>
     return Row(
       children: [
         const Text('>'),
-        const SizedBox(width: 8.0),
+        const SizedBox(width: denseSpacing),
         Expanded(
           child: Focus(
-            onKey: (_, RawKeyEvent event) {
-              if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
+            onKeyEvent: (_, event) {
+              if (!event.isKeyDownOrRepeat) return KeyEventResult.ignored;
+              if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
                 _historyNavUp();
                 return KeyEventResult.handled;
-              } else if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
+              } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
                 _historyNavDown();
                 return KeyEventResult.handled;
-              } else if (event.isKeyPressed(LogicalKeyboardKey.enter)) {
+              } else if (event.logicalKey == LogicalKeyboardKey.enter) {
                 _handleExpressionEval(context);
                 return KeyEventResult.handled;
               }
@@ -223,33 +222,38 @@ class ExpressionEvalFieldState extends State<ExpressionEvalField>
               shouldRequestFocus: false,
               clearFieldOnEscapeWhenOverlayHidden: true,
               onSelection: _onSelection,
-              decoration: const InputDecoration(
-                contentPadding: EdgeInsets.all(denseSpacing),
-                border: OutlineInputBorder(),
-                focusedBorder: OutlineInputBorder(borderSide: BorderSide.none),
-                enabledBorder: OutlineInputBorder(borderSide: BorderSide.none),
+              decoration: InputDecoration(
+                contentPadding: const EdgeInsets.all(denseSpacing),
+                border: const OutlineInputBorder(),
+                focusedBorder: const OutlineInputBorder(
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: const OutlineInputBorder(
+                  borderSide: BorderSide.none,
+                ),
                 labelText: 'Eval. Enter "?" for help.',
+                labelStyle: Theme.of(context).subtleTextStyle,
               ),
-              overlayXPositionBuilder:
-                  (String inputValue, TextStyle? inputStyle) {
+              overlayXPositionBuilder: (
+                String inputValue,
+                TextStyle? inputStyle,
+              ) {
                 // X-coordinate is equivalent to the width of the input text
                 // up to the last "." or the insertion point (cursor):
                 final indexOfDot = inputValue.lastIndexOf('.');
-                final textSegment = indexOfDot != -1
-                    ? inputValue.substring(0, indexOfDot + 1)
-                    : inputValue;
+                final textSegment =
+                    indexOfDot != -1
+                        ? inputValue.substring(0, indexOfDot + 1)
+                        : inputValue;
                 return calculateTextSpanWidth(
-                  TextSpan(
-                    text: textSegment,
-                    style: inputStyle,
-                  ),
+                  TextSpan(text: textSegment, style: inputStyle),
                 );
               },
               // Disable ligatures, so the suggestions of the auto complete work correcly.
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontFeatures: [const FontFeature.disable('liga')]),
+              style: Theme.of(context).fixedFontStyle.copyWith(
+                fontFeatures: [const FontFeature.disable('liga')],
+              ),
+              maxLines: null,
             ),
           ),
         ),
@@ -294,10 +298,7 @@ class ExpressionEvalFieldState extends State<ExpressionEvalField>
     );
   }
 
-  List<String> _filterMatches(
-    List<String> previousMatches,
-    String activeWord,
-  ) {
+  List<String> _filterMatches(List<String> previousMatches, String activeWord) {
     return previousMatches
         .where((match) => match.startsWith(activeWord))
         .toList();
@@ -322,14 +323,15 @@ class ExpressionEvalFieldState extends State<ExpressionEvalField>
       return;
     }
 
-    serviceManager.consoleService.appendStdio('> $expressionText\n');
+    serviceConnection.consoleService.appendStdio('> $expressionText\n');
     setState(() {
       historyPosition = -1;
-      serviceManager.appState.evalHistory.pushEvalHistory(expressionText);
+      serviceConnection.appState.evalHistory.pushEvalHistory(expressionText);
     });
 
     try {
-      final isolateRef = serviceManager.isolateManager.selectedIsolate.value;
+      final isolateRef =
+          serviceConnection.serviceManager.isolateManager.selectedIsolate.value;
 
       // Response is either a ErrorRef, InstanceRef, or Sentinel.
       final Response response;
@@ -345,13 +347,15 @@ class ExpressionEvalFieldState extends State<ExpressionEvalField>
           );
           return;
         }
-        response =
-            await evalService.evalInRunningApp(isolateRef, expressionText);
+        response = await evalService.evalInRunningApp(
+          isolateRef,
+          expressionText,
+        );
       }
 
       // Display the response to the user.
       if (response is InstanceRef) {
-        _emitRefToConsole(response, isolateRef);
+        await _emitRefToConsole(response, isolateRef);
       } else {
         String? value = response.toString();
 
@@ -370,16 +374,13 @@ class ExpressionEvalFieldState extends State<ExpressionEvalField>
   }
 
   void _emitToConsole(String text) {
-    serviceManager.consoleService.appendStdio(
+    serviceConnection.consoleService.appendStdio(
       '  ${text.replaceAll('\n', '\n  ')}\n',
     );
   }
 
-  void _emitRefToConsole(
-    InstanceRef ref,
-    IsolateRef? isolate,
-  ) {
-    serviceManager.consoleService.appendInstanceRef(
+  Future<void> _emitRefToConsole(InstanceRef ref, IsolateRef? isolate) async {
+    await serviceConnection.consoleService.appendInstanceRef(
       value: ref,
       diagnostic: null,
       isolateRef: isolate,
@@ -393,7 +394,7 @@ class ExpressionEvalFieldState extends State<ExpressionEvalField>
     super.dispose();
   }
 
-  EvalHistory get _evalHistory => serviceManager.appState.evalHistory;
+  EvalHistory get _evalHistory => serviceConnection.appState.evalHistory;
 
   void _historyNavUp() {
     if (!_evalHistory.canNavigateUp) {
@@ -435,12 +436,9 @@ class ExpressionEvalFieldState extends State<ExpressionEvalField>
     if (assignment == null) return false;
     const kSuccess = true;
 
-    if (!evalService.isScopeSupported(emitWarningToConsole: true)) {
-      return kSuccess;
-    }
-
-    final variable =
-        serviceManager.consoleService.itemAt(assignment.consoleItemIndex + 1);
+    final variable = serviceConnection.consoleService.itemAt(
+      assignment.consoleItemIndex + 1,
+    );
     final value = variable?.value;
     if (value is! InstanceRef) {
       _emitToConsole(
@@ -449,14 +447,23 @@ class ExpressionEvalFieldState extends State<ExpressionEvalField>
       return kSuccess;
     }
 
-    final isolateId = serviceManager.isolateManager.selectedIsolate.value?.id;
+    final isolateId =
+        serviceConnection
+            .serviceManager
+            .isolateManager
+            .selectedIsolate
+            .value
+            ?.id;
     final isolateName =
-        serviceManager.isolateManager.selectedIsolate.value?.name;
+        serviceConnection
+            .serviceManager
+            .isolateManager
+            .selectedIsolate
+            .value
+            ?.name;
 
     if (isolateId == null || isolateName == null) {
-      _emitToConsole(
-        'Selected isolate cannot be detected.',
-      );
+      _emitToConsole('Selected isolate cannot be detected.');
       return kSuccess;
     }
 

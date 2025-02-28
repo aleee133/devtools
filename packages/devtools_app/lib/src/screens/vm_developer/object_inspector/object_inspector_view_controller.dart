@@ -1,15 +1,15 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Flutter Authors
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE file or at https://developers.google.com/open-source/licenses/bsd.
 
 import 'dart:async';
 
 import 'package:collection/collection.dart';
+import 'package:devtools_app_shared/utils.dart';
 import 'package:flutter/foundation.dart';
 import 'package:vm_service/vm_service.dart';
 
 import '../../../shared/globals.dart';
-import '../../../shared/primitives/auto_dispose.dart';
 import '../../debugger/codeview_controller.dart';
 import '../../debugger/program_explorer_controller.dart';
 import '../vm_service_private_extensions.dart';
@@ -25,20 +25,18 @@ class ObjectInspectorViewController extends DisposableController
   ObjectInspectorViewController({
     ClassHierarchyExplorerController? classHierarchyController,
   }) : classHierarchyController =
-            classHierarchyController ?? ClassHierarchyExplorerController() {
+           classHierarchyController ?? ClassHierarchyExplorerController() {
     addAutoDisposeListener(
       scriptManager.sortedScripts,
       _initializeForCurrentIsolate,
     );
 
-    addAutoDisposeListener(
-      objectHistory.current,
-      _onCurrentObjectChanged,
-    );
+    addAutoDisposeListener(objectHistory.current, _onCurrentObjectChanged);
   }
 
-  final programExplorerController =
-      ProgramExplorerController(showCodeNodes: true);
+  final programExplorerController = ProgramExplorerController(
+    showCodeNodes: true,
+  );
 
   final ClassHierarchyExplorerController classHierarchyController;
   final codeViewController = CodeViewController();
@@ -46,13 +44,12 @@ class ObjectInspectorViewController extends DisposableController
 
   final objectHistory = ObjectHistory();
 
-  Isolate? isolate;
-
   ValueListenable<bool> get refreshing => _refreshing;
   final _refreshing = ValueNotifier<bool>(false);
 
   bool _initialized = false;
 
+  @override
   Future<void> init() async {
     if (!_initialized) {
       await programExplorerController.initialize();
@@ -62,15 +59,27 @@ class ObjectInspectorViewController extends DisposableController
     }
   }
 
+  @override
+  void dispose() {
+    classHierarchyController.dispose();
+    programExplorerController.dispose();
+    codeViewController.dispose();
+    objectStoreController.dispose();
+    objectHistory.dispose();
+    _refreshing.dispose();
+    super.dispose();
+  }
+
   Future<void> _onCurrentObjectChanged() async {
     final currentObjectValue = objectHistory.current.value;
 
     if (currentObjectValue != null) {
       try {
-        final scriptRef = currentObjectValue.scriptRef ??
-            (await programExplorerController
-                    .searchFileExplorer(currentObjectValue.obj))
-                .script;
+        final scriptRef =
+            currentObjectValue.scriptRef ??
+            (await programExplorerController.searchFileExplorer(
+              currentObjectValue.obj,
+            )).script;
 
         if (scriptRef != null) {
           await programExplorerController.selectScriptNode(scriptRef);
@@ -133,59 +142,34 @@ class ObjectInspectorViewController extends DisposableController
     ObjRef objRef, {
     ScriptRef? scriptRef,
   }) async {
-    VmObject? object;
+    VmObject object;
     if (objRef is ClassRef) {
-      object = ClassObject(
-        ref: objRef,
-        scriptRef: scriptRef,
-      );
+      object = ClassObject(ref: objRef, scriptRef: scriptRef);
     } else if (objRef is FuncRef) {
-      object = FuncObject(
-        ref: objRef,
-        scriptRef: scriptRef,
-      );
+      object = FuncObject(ref: objRef, scriptRef: scriptRef);
     } else if (objRef is FieldRef) {
-      object = FieldObject(
-        ref: objRef,
-        scriptRef: scriptRef,
-      );
+      object = FieldObject(ref: objRef, scriptRef: scriptRef);
     } else if (objRef is LibraryRef) {
-      object = LibraryObject(
-        ref: objRef,
-        scriptRef: scriptRef,
-      );
+      object = LibraryObject(ref: objRef, scriptRef: scriptRef);
     } else if (objRef is ScriptRef) {
-      object = ScriptObject(
-        ref: objRef,
-        scriptRef: scriptRef,
-      );
+      object = ScriptObject(ref: objRef, scriptRef: scriptRef);
     } else if (objRef is InstanceRef) {
-      object = InstanceObject(
-        ref: objRef,
-      );
+      object = InstanceObject(ref: objRef);
     } else if (objRef is CodeRef) {
-      object = CodeObject(
-        ref: objRef,
-      );
+      object = CodeObject(ref: objRef);
     } else if (objRef.isObjectPool) {
-      object = ObjectPoolObject(
-        ref: objRef,
-      );
+      object = ObjectPoolObject(ref: objRef);
     } else if (objRef.isICData) {
-      object = ICDataObject(
-        ref: objRef,
-      );
+      object = ICDataObject(ref: objRef);
     } else if (objRef.isSubtypeTestCache) {
-      object = SubtypeTestCacheObject(
-        ref: objRef,
-      );
+      object = SubtypeTestCacheObject(ref: objRef);
     } else if (objRef.isWeakArray) {
-      object = WeakArrayObject(
-        ref: objRef,
-      );
+      object = WeakArrayObject(ref: objRef);
+    } else {
+      object = UnknownObject(ref: objRef);
     }
 
-    await object?.initialize();
+    await object.initialize();
 
     return object;
   }
@@ -198,9 +182,14 @@ class ObjectInspectorViewController extends DisposableController
     await classHierarchyController.refresh();
 
     final scriptRefs = scriptManager.sortedScripts.value;
-    final service = serviceManager.service!;
+    final service = serviceConnection.serviceManager.service!;
     final isolate = await service.getIsolate(
-      serviceManager.isolateManager.selectedIsolate.value!.id!,
+      serviceConnection
+          .serviceManager
+          .isolateManager
+          .selectedIsolate
+          .value!
+          .id!,
     );
 
     final mainScriptRef = scriptRefs.firstWhereOrNull((ref) {
